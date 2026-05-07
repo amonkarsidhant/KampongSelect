@@ -1,0 +1,24 @@
+name: Weekly sheet sync
+
+# Pulls the public Kampong availability sheet every Monday at 06:00 UTC and
+# upserts player roster changes into Supabase. Fully free on the GitHub
+# Actions free tier (2000 minutes/month — this job uses ~30 seconds).
+
+on:
+  schedule:
+    - cron: "0 6 * * 1"
+  workflow_dispatch: # allow manual runs from the Actions tab
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - run: npm ci
+      - run: npm run import-sheet -- --sheet-id ${{ vars.KAMPONG_SHEET_ID }} --gid ${{ vars.KAMPONG_SHEET_GID }}
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
