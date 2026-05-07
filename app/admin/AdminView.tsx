@@ -1,7 +1,7 @@
 "use client";
 
-import { useMemo, useState } from "react";
-import { Bell, Download, AlertTriangle, Users, Calendar, CheckCircle, Circle } from "lucide-react";
+import { useMemo, useState, useTransition } from "react";
+import { Bell, Download, AlertTriangle, Users, Calendar, CheckCircle, Circle, Plus, Trash2, MapPin } from "lucide-react";
 import { createClient } from "@/lib/supabase";
 import RoleSwitcher from "@/components/RoleSwitcher";
 import { findConflicts } from "@/lib/cascade";
@@ -17,8 +17,11 @@ interface Props {
   matchStatus: MatchStatus[];
 }
 
-export default function AdminView({ me, teams, matches, players, availability, selections, matchStatus }: Props) {
+export default function AdminView({ me, teams, matches: initialMatches, players, availability, selections, matchStatus }: Props) {
   const [showConflicts, setShowConflicts] = useState(false);
+  const [showMatchManager, setShowMatchManager] = useState(false);
+  const [matches, setMatches] = useState<Match[]>(initialMatches);
+  const [isPending, startTransition] = useTransition();
   const supabase = createClient();
 
   // Group matches by weekend
@@ -65,8 +68,6 @@ export default function AdminView({ me, teams, matches, players, availability, s
       alert("Everyone has responded already.");
       return;
     }
-    // In production this calls a server action that fans out via Resend.
-    // For the demo we just confirm the action.
     const ok = confirm(`Send a reminder to ${nonResponders.length} players who haven't responded for ${weekend?.label}?`);
     if (ok) alert(`Reminder queued for ${nonResponders.length} players.`);
   }
@@ -97,15 +98,37 @@ export default function AdminView({ me, teams, matches, players, availability, s
     URL.revokeObjectURL(url);
   }
 
+  async function handleAddMatch(newMatch: any) {
+    startTransition(async () => {
+      const { data, error } = await supabase.from("matches").insert(newMatch).select().single();
+      if (data) {
+        setMatches(prev => [...prev, data as Match]);
+      } else if (error) {
+        alert("Failed to add match: " + error.message);
+      }
+    });
+  }
+
+  async function handleDeleteMatch(id: string) {
+    if (!confirm("Are you sure you want to delete this match?")) return;
+    startTransition(async () => {
+      const { error } = await supabase.from("matches").delete().eq("id", id);
+      if (!error) {
+        setMatches(prev => prev.filter(m => m.id !== id));
+      } else {
+        alert("Failed to delete match: " + error.message);
+      }
+    });
+  }
+
   return (
     <main className="min-h-screen p-6">
       <div className="max-w-6xl mx-auto">
         <Header me={me} />
         <RoleSwitcher current="admin" userRole={me.user_role} />
 
-        {/* Weekend selector */}
-        {weekends.length > 1 && (
-          <div className="flex gap-2 mt-6 mb-4 flex-wrap">
+        <div className="flex justify-between items-center mt-6 mb-4">
+          <div className="flex gap-2 flex-wrap">
             {weekends.map((w) => (
               <button
                 key={w.id}
@@ -120,13 +143,22 @@ export default function AdminView({ me, teams, matches, players, availability, s
               </button>
             ))}
           </div>
+          <button
+            onClick={() => setShowMatchManager(!showMatchManager)}
+            className="px-3 py-1.5 text-xs font-medium rounded-md border border-stone-100/10 hover:bg-stone-100/[0.04] flex items-center gap-1.5"
+          >
+            <Plus size={14} /> {showMatchManager ? "Hide Manager" : "Manage Fixtures"}
+          </button>
+        </div>
+
+        {showMatchManager && (
+          <MatchManager teams={teams} onAdd={handleAddMatch} matches={matches} onDelete={handleDeleteMatch} />
         )}
 
-        {weekend && stats && (
+        {!showMatchManager && weekend && stats && (
           <>
             <h2 className="text-xl font-semibold mt-6 mb-4">{weekend.label}</h2>
 
-            {/* Stat tiles */}
             <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
               <Stat label="Squad size" value={stats.totalPlayers} icon={<Users size={12} />} />
               <Stat
@@ -145,7 +177,6 @@ export default function AdminView({ me, teams, matches, players, availability, s
               />
             </div>
 
-            {/* Conflicts panel */}
             {showConflicts && (
               <div className="mb-6 p-4 rounded-lg border border-rose-500/30 bg-rose-950/15">
                 <p className="text-sm font-medium text-rose-300 mb-2">Double-bookings</p>
@@ -164,7 +195,6 @@ export default function AdminView({ me, teams, matches, players, availability, s
               </div>
             )}
 
-            {/* Cascade progress */}
             <div className="mb-6">
               <p className="text-sm font-medium mb-2">Selection cascade</p>
               <div className="border border-stone-100/10 rounded-lg overflow-hidden">
@@ -205,7 +235,6 @@ export default function AdminView({ me, teams, matches, players, availability, s
               </div>
             </div>
 
-            {/* Action bar */}
             <div className="flex flex-wrap gap-2">
               <button
                 onClick={nudgeNonResponders}
@@ -229,11 +258,132 @@ export default function AdminView({ me, teams, matches, players, availability, s
           </>
         )}
 
-        {weekends.length === 0 && (
+        {weekends.length === 0 && !showMatchManager && (
           <p className="mt-6 text-sm text-stone-400">No upcoming matches in the next 14 days.</p>
         )}
       </div>
     </main>
+  );
+}
+
+function MatchManager({ teams, onAdd, matches, onDelete }: { teams: Team[]; onAdd: (m: any) => void; matches: Match[]; onDelete: (id: string) => void }) {
+  const [newMatch, setNewMatch] = useState({
+    team_code: teams[0]?.code ?? "",
+    match_date: new Date().toISOString().slice(0, 10),
+    opposition: "",
+    venue: "",
+    is_home: true,
+    start_time: "11:00:00",
+  });
+
+  return (
+    <div className="mt-6 space-y-6">
+      <div className="p-4 rounded-lg border border-stone-100/10 bg-stone-100/[0.02]">
+        <h3 className="text-sm font-medium mb-4 flex items-center gap-2">
+          <Plus size={14} className="text-stone-400" />
+          Add New Fixture
+        </h3>
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+          <label className="block">
+            <span className="text-[10px] uppercase text-stone-500 font-mono">Team</span>
+            <select
+              value={newMatch.team_code}
+              onChange={(e) => setNewMatch({ ...newMatch, team_code: e.target.value })}
+              className="mt-1 w-full bg-stone-900 border border-stone-100/10 rounded-md p-2 text-sm text-stone-300"
+            >
+              {teams.map((t) => (
+                <option key={t.code} value={t.code}>
+                  {t.code} — {t.name}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="block">
+            <span className="text-[10px] uppercase text-stone-500 font-mono">Date</span>
+            <input
+              type="date"
+              value={newMatch.match_date}
+              onChange={(e) => setNewMatch({ ...newMatch, match_date: e.target.value })}
+              className="mt-1 w-full bg-stone-900 border border-stone-100/10 rounded-md p-2 text-sm text-stone-300"
+            />
+          </label>
+          <label className="block">
+            <span className="text-[10px] uppercase text-stone-500 font-mono">Opposition</span>
+            <input
+              type="text"
+              placeholder="e.g. VRA 1"
+              value={newMatch.opposition}
+              onChange={(e) => setNewMatch({ ...newMatch, opposition: e.target.value })}
+              className="mt-1 w-full bg-stone-900 border border-stone-100/10 rounded-md p-2 text-sm text-stone-300"
+            />
+          </label>
+          <label className="block">
+            <span className="text-[10px] uppercase text-stone-500 font-mono">Venue</span>
+            <input
+              type="text"
+              placeholder="e.g. Maarschalkerweerd"
+              value={newMatch.venue}
+              onChange={(e) => setNewMatch({ ...newMatch, venue: e.target.value })}
+              className="mt-1 w-full bg-stone-900 border border-stone-100/10 rounded-md p-2 text-sm text-stone-300"
+            />
+          </label>
+          <label className="block">
+            <span className="text-[10px] uppercase text-stone-500 font-mono">Start Time</span>
+            <input
+              type="time"
+              value={newMatch.start_time.slice(0, 5)}
+              onChange={(e) => setNewMatch({ ...newMatch, start_time: e.target.value + ":00" })}
+              className="mt-1 w-full bg-stone-900 border border-stone-100/10 rounded-md p-2 text-sm text-stone-300"
+            />
+          </label>
+          <div className="flex items-end">
+            <button
+              onClick={() => {
+                onAdd({
+                  ...newMatch,
+                  weekend_day: new Date(newMatch.match_date).getDay() === 0 ? "sunday" : "saturday",
+                });
+                setNewMatch({ ...newMatch, opposition: "", venue: "" });
+              }}
+              className="w-full bg-stone-100 text-stone-900 h-9 rounded-md text-xs font-medium hover:bg-white transition-colors"
+            >
+              Save Fixture
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <div className="border border-stone-100/10 rounded-lg overflow-hidden">
+        <div className="bg-stone-100/[0.03] px-4 py-2 border-b border-stone-100/10 flex justify-between items-center">
+          <p className="text-[10px] uppercase text-stone-500 font-mono">Existing Fixtures</p>
+          <span className="text-[10px] text-stone-500 font-mono">{matches.length} Total</span>
+        </div>
+        <div className="divide-y divide-stone-100/[0.06]">
+          {matches
+            .sort((a, b) => a.match_date.localeCompare(b.match_date))
+            .map((m) => (
+              <div key={m.id} className="px-4 py-3 flex items-center justify-between hover:bg-stone-100/[0.01] transition-colors">
+                <div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs font-mono font-bold text-kampong-red">{m.team_code}</span>
+                    <span className="text-sm font-medium">vs {m.opposition}</span>
+                  </div>
+                  <div className="flex gap-3 mt-1 text-[10px] text-stone-500">
+                    <span className="flex items-center gap-1"><Calendar size={10} /> {m.match_date} ({m.weekend_day})</span>
+                    <span className="flex items-center gap-1"><MapPin size={10} /> {m.venue ?? "No venue"}</span>
+                  </div>
+                </div>
+                <button
+                  onClick={() => onDelete(m.id)}
+                  className="p-1.5 text-stone-600 hover:text-rose-400 hover:bg-rose-400/10 rounded-md transition-all"
+                >
+                  <Trash2 size={14} />
+                </button>
+              </div>
+            ))}
+        </div>
+      </div>
+    </div>
   );
 }
 

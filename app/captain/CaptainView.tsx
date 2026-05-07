@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useMemo, useTransition, useEffect } from "react";
-import { Check, Users, MapPin, Clock, ArrowDown, AlertCircle, ChevronRight } from "lucide-react";
+import { Check, Users, MapPin, Clock, ArrowDown, AlertCircle, ChevronRight, Shield, Star } from "lucide-react";
 import { createClient } from "@/lib/supabase";
 import RoleSwitcher from "@/components/RoleSwitcher";
 import { poolForMatch } from "@/lib/cascade";
@@ -26,7 +26,7 @@ export default function CaptainView({
   availability,
   selections: initialSelections,
 }: Props) {
-  // Admins can switch the team they're picking for; captains are locked.
+  // ... (rest of the state and hooks)
   const [selectedTeam, setSelectedTeam] = useState(myTeamCode);
   const teamMatches = useMemo(
     () => matches.filter((m) => m.team_code === selectedTeam),
@@ -80,6 +80,10 @@ export default function CaptainView({
     const availForDate = new Map<string, AvailStatus>(
       availability.filter((a) => a.match_date === match.match_date).map((a) => [a.player_id, a.status])
     );
+    const notesForDate = new Map<string, string>(
+      availability.filter((a) => a.match_date === match.match_date).map((a) => [a.player_id, a.note ?? ""])
+    );
+
     return poolForMatch({
       match,
       teams,
@@ -87,13 +91,14 @@ export default function CaptainView({
       playersById,
       availability: availForDate,
       selections,
-    });
+    }).map(p => ({ ...p, note: notesForDate.get(p.player.id) || "" }));
   }, [match, teams, matches, players, availability, selections]);
 
   const myPicks = useMemo(
-    () => selections.filter((s) => s.match_id === matchId).map((s) => s.player_id),
+    () => selections.filter((s) => s.match_id === matchId),
     [selections, matchId]
   );
+  const myPickIds = useMemo(() => myPicks.map(s => s.player_id), [myPicks]);
 
   const tierOrder = myTeam?.tier_order ?? null;
   const isRec = myTeam?.kind === "recreational";
@@ -140,6 +145,20 @@ export default function CaptainView({
         }
       });
     }
+  }
+
+  function toggleRole(playerId: string, role: "is_captain" | "is_keeper") {
+    const existing = selections.find((s) => s.match_id === matchId && s.player_id === playerId);
+    if (!existing) return;
+
+    const nextValue = !existing[role];
+    
+    // Optimistic update
+    setSelections(prev => prev.map(s => s.id === existing.id ? { ...s, [role]: nextValue } : s));
+
+    startTransition(async () => {
+      await supabase.from("selections").update({ [role]: nextValue }).eq("id", existing.id);
+    });
   }
 
   async function confirmXI() {
@@ -254,9 +273,10 @@ export default function CaptainView({
             <div className="space-y-1">
               <div className="grid grid-cols-12 gap-3 px-3 pb-1 text-[10px] uppercase tracking-wider text-stone-500 font-mono">
                 <div className="col-span-1">Pick</div>
-                <div className="col-span-5">Player</div>
+                <div className="col-span-4">Player</div>
                 <div className="col-span-3">Role</div>
                 <div className="col-span-1 text-center">Tier</div>
+                <div className="col-span-1 text-center">Cap/Wk</div>
                 <div className="col-span-2 text-right">Status</div>
               </div>
               {pool.length === 0 ? (
@@ -264,8 +284,9 @@ export default function CaptainView({
                   No players have set themselves available for this date yet.
                 </div>
               ) : (
-                pool.map(({ player, status, takenBy }) => {
-                  const picked = myPicks.includes(player.id);
+                pool.map(({ player, status, takenBy, note }) => {
+                  const sel = selections.find(s => s.match_id === matchId && s.player_id === player.id);
+                  const picked = !!sel;
                   const canPick = status === "available" || status === "already_picked";
                   return (
                     <div
@@ -291,15 +312,45 @@ export default function CaptainView({
                           {picked && <Check size={13} strokeWidth={3} />}
                         </button>
                       </div>
-                      <div className="col-span-5">
-                        <p className="text-sm font-medium">{player.full_name}</p>
-                        {player.kncb_id && (
+                      <div className="col-span-4">
+                        <div className="flex items-center gap-1.5">
+                          <p className="text-sm font-medium">{player.full_name}</p>
+                          {tierOrder && player.tier && player.tier < (tierOrder - 1) && (
+                            <div title={`Warning: Player tier (${player.tier}) is significantly higher than team tier (${tierOrder})`} className="text-amber-400">
+                              <AlertCircle size={12} />
+                            </div>
+                          )}
+                        </div>
+                        {note && (
+                          <p className="text-[10px] text-amber-200/70 italic mt-0.5">{note}</p>
+                        )}
+                        {!note && player.kncb_id && (
                           <p className="text-[10px] font-mono text-stone-500">KNCB #{player.kncb_id}</p>
                         )}
                       </div>
                       <div className="col-span-3 text-xs text-stone-300">{player.role}</div>
                       <div className="col-span-1 text-center text-xs font-mono">
                         {player.tier ?? "—"}
+                      </div>
+                      <div className="col-span-1 flex justify-center gap-1">
+                        {picked && (
+                          <>
+                            <button
+                              onClick={() => toggleRole(player.id, "is_captain")}
+                              title="Mark as Captain"
+                              className={`p-1 rounded hover:bg-white/10 ${sel.is_captain ? "text-kampong-red" : "text-stone-600"}`}
+                            >
+                              <Star size={14} fill={sel.is_captain ? "currentColor" : "none"} />
+                            </button>
+                            <button
+                              onClick={() => toggleRole(player.id, "is_keeper")}
+                              title="Mark as Wicketkeeper"
+                              className={`p-1 rounded hover:bg-white/10 ${sel.is_keeper ? "text-blue-400" : "text-stone-600"}`}
+                            >
+                              <Shield size={14} fill={sel.is_keeper ? "currentColor" : "none"} />
+                            </button>
+                          </>
+                        )}
                       </div>
                       <div className="col-span-2 flex justify-end">
                         {status === "available" ? (

@@ -8,15 +8,15 @@ export function createClient() {
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
     {
       cookies: {
-        get: (name) => cookieStore.get(name)?.value,
-        set: (name, value, options) => {
+        get: (name: string) => cookieStore.get(name)?.value,
+        set: (name: string, value: string, options: any) => {
           try {
             cookieStore.set({ name, value, ...options });
           } catch {
             // Server Components can't set cookies — handled by middleware.
           }
         },
-        remove: (name, options) => {
+        remove: (name: string, options: any) => {
           try {
             cookieStore.set({ name, value: "", ...options });
           } catch {}

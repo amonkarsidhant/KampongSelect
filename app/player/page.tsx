@@ -42,6 +42,17 @@ export default async function PlayerPage() {
     .eq("player_id", player.id)
     .in("match_date", [sat, sun]);
 
+  const { data: selections } = await supabase
+    .from("selections")
+    .select("*, matches!inner(*)")
+    .eq("player_id", player.id)
+    .in("matches.match_date", [sat, sun]);
+
+  const { data: matchStatus } = await supabase
+    .from("match_status")
+    .select("*")
+    .in("match_id", (matches ?? []).map((m) => m.id));
+
   return (
     <PlayerView
       player={player}
@@ -49,6 +60,8 @@ export default async function PlayerPage() {
       sun={sun}
       matches={(matches ?? []) as Match[]}
       initialAvailability={(avail ?? []) as Availability[]}
+      selections={(selections ?? []) as any[]}
+      matchStatus={(matchStatus ?? []) as any[]}
     />
   );
 }
