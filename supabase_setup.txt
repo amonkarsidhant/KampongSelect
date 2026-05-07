@@ -1,0 +1,132 @@
+create type user_role as enum ('player', 'captain', 'admin');
+create type player_role as enum ('Batter', 'Bowler', 'All-rounder', 'Wicketkeeper');
+create type team_kind as enum ('competitive', 'recreational');
+create type weekend_day as enum ('saturday', 'sunday');
+create type avail_status as enum ('yes', 'no');
+
+create table teams (
+  code text primary key,
+  name text not null,
+  kind team_kind not null,
+  default_day weekend_day,
+  tier_order integer,
+  active boolean not null default true
+);
+
+create table players (
+  id uuid primary key default gen_random_uuid(),
+  auth_user_id uuid references auth.users(id) on delete set null,
+  email text unique not null,
+  full_name text not null,
+  kncb_id integer unique,
+  role player_role not null default 'Batter',
+  tier integer check (tier between 1 and 5),
+  user_role user_role not null default 'player',
+  captains_team text references teams(code),
+  active boolean not null default true,
+  created_at timestamptz not null default now()
+);
+
+create table matches (
+  id uuid primary key default gen_random_uuid(),
+  team_code text not null references teams(code),
+  match_date date not null,
+  weekend_day weekend_day not null,
+  start_time time,
+  opposition text not null,
+  venue text,
+  is_home boolean not null default false,
+  notes text,
+  created_at timestamptz not null default now()
+);
+
+create table availability (
+  id uuid primary key default gen_random_uuid(),
+  player_id uuid not null references players(id) on delete cascade,
+  match_date date not null,
+  status avail_status not null,
+  note text,
+  updated_at timestamptz not null default now(),
+  unique (player_id, match_date)
+);
+
+create table selections (
+  id uuid primary key default gen_random_uuid(),
+  match_id uuid not null references matches(id) on delete cascade,
+  player_id uuid not null references players(id) on delete cascade,
+  selected_by uuid references players(id),
+  selected_at timestamptz not null default now(),
+  is_captain boolean not null default false,
+  is_keeper boolean not null default false,
+  unique (match_id, player_id)
+);
+
+create table match_status (
+  match_id uuid primary key references matches(id) on delete cascade,
+  state text not null default 'open' check (state in ('open', 'selecting', 'confirmed')),
+  confirmed_at timestamptz,
+  confirmed_by uuid references players(id)
+);
+
+insert into teams (code, name, kind, tier_order, default_day) values
+  ('H1', 'Kampong 1', 'competitive', 1, null),
+  ('H2', 'Kampong 2', 'competitive', 2, null),
+  ('H3', 'Kampong 3', 'competitive', 3, null),
+  ('H4', 'Kampong 4', 'competitive', 4, null),
+  ('H5', 'Kampong 5', 'competitive', 5, null),
+  ('Zami 1', 'Zami 1', 'recreational', null, 'saturday'),
+  ('Zami 2', 'Zami 2', 'recreational', null, 'saturday'),
+  ('Zomi', 'Zomi', 'recreational', null, 'sunday');
+
+alter table players enable row level security;
+alter table teams enable row level security;
+alter table matches enable row level security;
+alter table availability enable row level security;
+alter table selections enable row level security;
+alter table match_status enable row level security;
+
+create or replace function current_player()
+returns players
+language sql stable
+as $$
+  select * from players where auth_user_id = auth.uid() limit 1;
+$$;
+
+create policy players_select on players for select
+  using (auth.role() = 'authenticated');
+create policy players_admin_write on players for all
+  using ((select user_role from current_player()) = 'admin')
+  with check ((select user_role from current_player()) = 'admin');
+create policy players_self_update on players for update
+  using (auth_user_id = auth.uid())
+  with check (auth_user_id = auth.uid());
+
+create policy teams_read    on teams        for select using (auth.role() = 'authenticated');
+create policy teams_write   on teams        for all
+  using ((select user_role from current_player()) = 'admin');
+create policy matches_read  on matches      for select using (auth.role() = 'authenticated');
+create policy matches_write on matches      for all
+  using ((select user_role from current_player()) = 'admin');
+create policy ms_read       on match_status for select using (auth.role() = 'authenticated');
+create policy ms_write      on match_status for all
+  using ((select user_role from current_player()) in ('admin', 'captain'));
+
+create policy avail_read on availability for select using (auth.role() = 'authenticated');
+create policy avail_self_write on availability for all
+  using (player_id = (select id from current_player()))
+  with check (player_id = (select id from current_player()));
+create policy avail_admin_write on availability for all
+  using ((select user_role from current_player()) = 'admin');
+
+create policy sel_read on selections for select using (auth.role() = 'authenticated');
+create policy sel_captain_write on selections for all
+  using (
+    exists (
+      select 1 from matches m
+      join players p on p.captains_team = m.team_code
+      where m.id = selections.match_id
+        and p.auth_user_id = auth.uid()
+    )
+  );
+create policy sel_admin_write on selections for all
+  using ((select user_role from current_player()) = 'admin');
