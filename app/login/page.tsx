@@ -23,6 +23,16 @@ export default function LoginPage() {
     else setSent(true);
   }
 
+  async function handleSocialLogin(provider: "google" | "github") {
+    const supabase = createClient();
+    await supabase.auth.signInWithOAuth({
+      provider,
+      options: {
+        redirectTo: `${window.location.origin}/auth/callback`,
+      },
+    });
+  }
+
   return (
     <main className="min-h-screen flex items-center justify-center p-6">
       <div className="w-full max-w-sm">
@@ -44,29 +54,56 @@ export default function LoginPage() {
             </p>
           </div>
         ) : (
-          <form onSubmit={handleSubmit} className="space-y-3">
-            <label className="block">
-              <span className="text-sm text-stone-300">Email address</span>
-              <input
-                type="email"
-                required
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                placeholder="you@example.com"
-                className="mt-1 w-full px-3 py-2.5 rounded-lg bg-stone-100/[0.04] border border-stone-100/10 focus:outline-none focus:border-kampong-red"
-              />
-            </label>
-            {error && <p className="text-sm text-rose-400">{error}</p>}
-            <button
-              disabled={loading}
-              className="w-full py-2.5 rounded-lg bg-kampong-red text-white font-medium text-sm disabled:opacity-50"
-            >
-              {loading ? "Sending..." : "Send magic link"}
-            </button>
+          <div className="space-y-6">
+            <form onSubmit={handleSubmit} className="space-y-3">
+              <label className="block">
+                <span className="text-sm text-stone-300">Email address</span>
+                <input
+                  type="email"
+                  required
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  placeholder="you@example.com"
+                  className="mt-1 w-full px-3 py-2.5 rounded-lg bg-stone-100/[0.04] border border-stone-100/10 focus:outline-none focus:border-kampong-red"
+                />
+              </label>
+              {error && <p className="text-sm text-rose-400">{error}</p>}
+              <button
+                disabled={loading}
+                className="w-full py-2.5 rounded-lg bg-kampong-red text-white font-medium text-sm disabled:opacity-50"
+              >
+                {loading ? "Sending..." : "Send magic link"}
+              </button>
+            </form>
+
+            <div className="relative">
+              <div className="absolute inset-0 flex items-center">
+                <span className="w-full border-t border-stone-100/10"></span>
+              </div>
+              <div className="relative flex justify-center text-xs uppercase">
+                <span className="bg-stone-950 px-2 text-stone-500">Or continue with</span>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <button
+                onClick={() => handleSocialLogin("google")}
+                className="flex items-center justify-center gap-2 py-2 rounded-lg border border-stone-100/10 bg-white/5 hover:bg-white/10 transition-colors text-sm font-medium"
+              >
+                Google
+              </button>
+              <button
+                onClick={() => handleSocialLogin("github")}
+                className="flex items-center justify-center gap-2 py-2 rounded-lg border border-stone-100/10 bg-white/5 hover:bg-white/10 transition-colors text-sm font-medium"
+              >
+                GitHub
+              </button>
+            </div>
+
             <p className="text-xs text-stone-500 text-center pt-2">
-              No password needed — we&apos;ll email you a one-tap sign-in link.
+              No password needed — we&apos;ll use your social account or a magic link.
             </p>
-          </form>
+          </div>
         )}
       </div>
     </main>
