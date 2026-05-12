@@ -111,7 +111,7 @@ export default function AdminView({ me, teams, matches: initialMatches, players,
       <div className="max-w-6xl mx-auto px-6">
         <div className="pt-8 pb-4">
           <RoleSwitcher current="admin" userRole={me.user_role} />
-          <h1 className="font-display text-4xl font-bold mt-6 tracking-tight text-white">Command Centre</h1>
+          <h1 className="font-display text-4xl font-semibold mt-6 tracking-tight text-white">Command Centre</h1>
         </div>
 
         {/* Tab Switcher */}

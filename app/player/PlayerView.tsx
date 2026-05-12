@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition, useMemo, useRef } from "react";
+import { useState, useTransition, useMemo, useRef, useEffect } from "react";
 import { Check, X, MapPin, Clock, Calendar, Search } from "lucide-react";
 import { createClient } from "@/lib/supabase";
 import RoleSwitcher from "@/components/RoleSwitcher";
@@ -21,6 +21,12 @@ interface Props {
 
 export default function PlayerView({ player, matches, initialAvailability, selections, matchStatus }: Props) {
   const [activeTab, setActiveTab] = useState<"planner" | "fixtures">("planner");
+  const [mounted, setMounted] = useState(false);
+  
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
   const [avail, setAvail] = useState<Record<string, { status: AvailStatus | null; note: string }>>(() => {
     const map: Record<string, { status: AvailStatus | null; note: string }> = {};
     for (const a of initialAvailability) {
@@ -75,7 +81,7 @@ export default function PlayerView({ player, matches, initialAvailability, selec
           <RoleSwitcher current="player" userRole={player.user_role} />
           <div className="flex flex-col md:flex-row md:items-end justify-between gap-4 mt-8">
             <div>
-              <h1 className="font-display text-5xl font-bold tracking-tight leading-none text-white">
+              <h1 className="font-display text-5xl font-semibold tracking-tight leading-none text-white">
                 Player Hub
               </h1>
               <p className="text-foreground-muted mt-2 font-mono text-xs uppercase tracking-widest">
@@ -121,21 +127,21 @@ export default function PlayerView({ player, matches, initialAvailability, selec
                       const status = matchStatus.find((s) => s.match_id === m.id)?.state ?? "open";
                       return (
                         <div key={m.id} className="relative p-6 rounded-3xl border border-success/30 bg-success/5 overflow-hidden group">
-                          <CricketBall className="absolute -right-12 -bottom-12 w-48 h-48 opacity-[0.03] grayscale transition-transform group-hover:scale-110 duration-1000" />
+                          <CricketBall className="absolute -right-12 -bottom-12 size-48 opacity-[0.03] grayscale transition-transform group-hover:scale-110 duration-1000" />
                           <div className="relative z-10">
                             <div className="flex justify-between items-start">
                               <div>
                                 <span className="text-[10px] font-mono font-bold text-success uppercase tracking-widest bg-success/10 px-2 py-0.5 rounded">
                                   {status === "confirmed" ? "Final XI" : "Provisional"}
                                 </span>
-                                <h3 className="font-display text-3xl font-bold mt-2 text-white">{m.team_code}</h3>
+                                <h3 className="font-display text-3xl font-semibold mt-2 text-white">{m.team_code}</h3>
                                 <p className="text-foreground-muted text-sm">vs {m.opposition}</p>
                               </div>
                             </div>
                             <div className="grid grid-cols-2 gap-6 mt-8">
                               <div className="space-y-1">
                                 <p className="text-[9px] font-mono text-foreground-muted uppercase tracking-widest">When</p>
-                                <p className="font-display text-lg">{new Date(m.match_date).toLocaleDateString("en-GB", { weekday: 'short', day: 'numeric', month: 'short' })}</p>
+                                <p className="font-display text-lg">{mounted ? new Date(m.match_date).toLocaleDateString("en-GB", { weekday: 'short', day: 'numeric', month: 'short' }) : "..."}</p>
                                 <p className="font-mono text-xs text-foreground-muted">{m.start_time?.slice(0, 5) ?? "TBC"}</p>
                               </div>
                               <div className="space-y-1">
@@ -184,7 +190,7 @@ export default function PlayerView({ player, matches, initialAvailability, selec
                               <div>
                                 <h3 className="font-display text-2xl">{isSaturday ? "Saturday" : "Sunday"}</h3>
                                 <p className="font-mono text-[10px] text-foreground-muted uppercase tracking-widest">
-                                  {new Date(date).toLocaleDateString("en-GB", { day: "numeric", month: "long" })}
+                                  {mounted ? new Date(date).toLocaleDateString("en-GB", { day: "numeric", month: "long" }) : "..."}
                                 </p>
                               </div>
                               <div className="flex gap-2">
@@ -252,7 +258,7 @@ export default function PlayerView({ player, matches, initialAvailability, selec
                   {matches.map((m) => (
                     <div key={m.id} className="grid grid-cols-12 gap-4 px-6 py-4 items-center hover:bg-white/[0.02] transition-colors">
                       <div className="col-span-2 font-mono text-xs">
-                        {new Date(m.match_date).toLocaleDateString("en-GB", { day: '2-digit', month: 'short' })}
+                        {mounted ? new Date(m.match_date).toLocaleDateString("en-GB", { day: '2-digit', month: 'short' }) : "..."}
                       </div>
                       <div className="col-span-2 text-center">
                         <span className={cn("px-2 py-0.5 rounded text-[10px] font-bold", m.team_code.startsWith("H") ? "bg-crimson/20 text-crimson" : "bg-white/10 text-white")}>

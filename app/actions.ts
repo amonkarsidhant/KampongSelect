@@ -8,10 +8,10 @@ import { Resend } from "resend";
 const resend = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_API_KEY) : null;
 
 export async function nudgePlayersAction(playerIds: string[], weekendLabel: string) {
-  const supabase = createClient();
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) throw new Error("Unauthorized");
+  const { data: { user: session } } = await createClient().auth.getUser();
+  if (!session) throw new Error("Unauthorized");
 
+  const supabase = createClient();
   const { data: players } = await supabase.from("players").select("email, full_name").in("id", playerIds);
 
   if (!players) return { success: false, error: "No players found" };
@@ -24,9 +24,10 @@ export async function nudgePlayersAction(playerIds: string[], weekendLabel: stri
 }
 
 export async function notifySelectionAction(matchId: string) {
+  const { data: { user: session } } = await createClient().auth.getUser();
+  if (!session) throw new Error("Unauthorized");
+
   const supabase = createClient();
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) throw new Error("Unauthorized");
   
   // Get match and selected players in parallel (Performance optimization)
   const [matchRes, selectionsRes] = await Promise.all([
@@ -92,12 +93,13 @@ export async function notifySelectionAction(matchId: string) {
 }
 
 export async function updatePlayerAvailabilityAction(playerId: string, matchDate: string, status: "yes" | "no" | null) {
+  const { data: { user: session } } = await createClient().auth.getUser();
+  if (!session) throw new Error("Unauthorized");
+
   const supabase = createClient();
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) throw new Error("Unauthorized");
 
   // Check if current user is admin
-  const { data: admin } = await supabase.from("players").select("user_role").eq("auth_user_id", user.id).single();
+  const { data: admin } = await supabase.from("players").select("user_role").eq("auth_user_id", session.id).single();
   if (admin?.user_role !== "admin") throw new Error("Only admins can override availability");
 
   if (status === null) {

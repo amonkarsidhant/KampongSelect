@@ -210,7 +210,7 @@ export default function CaptainView({
       .subscribe();
 
     return () => {
-      supabase.removeChannel(channel);
+      channel.unsubscribe();
     };
   }, [supabase]);
 
