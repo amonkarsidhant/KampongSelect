@@ -28,39 +28,42 @@ export default async function PlayerPage() {
     .maybeSingle<Player>();
   if (!player) redirect("/");
 
-  const { sat, sun } = upcomingWeekend();
+  // Fetch ALL upcoming matches and availability for the season
+  const today = new Date().toISOString().slice(0, 10);
 
-  const { data: matches } = await supabase
-    .from("matches")
-    .select("*")
-    .in("match_date", [sat, sun])
-    .order("start_time", { ascending: true });
+  const [matchesRes, availRes, selectionsRes] = await Promise.all([
+    supabase.from("matches").select("*").gte("match_date", today).order("match_date", { ascending: true }),
+    supabase.from("availability").select("*").eq("player_id", player.id).gte("match_date", today),
+    supabase.from("selections").select("*, matches!inner(*)").eq("player_id", player.id).gte("matches.match_date", today)
+  ]);
 
-  const { data: avail } = await supabase
-    .from("availability")
-    .select("*")
-    .eq("player_id", player.id)
-    .in("match_date", [sat, sun]);
-
-  const { data: selections } = await supabase
-    .from("selections")
-    .select("*, matches!inner(*)")
-    .eq("player_id", player.id)
-    .in("matches.match_date", [sat, sun]);
+  const matches = matchesRes.data ?? [];
+  const avail = availRes.data ?? [];
+  const selections = selectionsRes.data ?? [];
 
   const { data: matchStatus } = await supabase
     .from("match_status")
     .select("*")
-    .in("match_id", (matches ?? []).map((m) => m.id));
+    .in("match_id", matches.map((m) => m.id));
+
+  // Determine the primary upcoming weekend for the immediate view
+  const day = new Date().getDay();
+  const daysUntilSat = (6 - day + 7) % 7 || 7;
+  const satDate = new Date();
+  satDate.setDate(new Date().getDate() + daysUntilSat);
+  const sunDate = new Date(satDate);
+  sunDate.setDate(satDate.getDate() + 1);
+  const sat = satDate.toISOString().slice(0, 10);
+  const sun = sunDate.toISOString().slice(0, 10);
 
   return (
     <PlayerView
       player={player}
       sat={sat}
       sun={sun}
-      matches={(matches ?? []) as Match[]}
-      initialAvailability={(avail ?? []) as Availability[]}
-      selections={(selections ?? []) as any[]}
+      matches={matches as Match[]}
+      initialAvailability={avail as Availability[]}
+      selections={selections as any[]}
       matchStatus={(matchStatus ?? []) as any[]}
     />
   );
