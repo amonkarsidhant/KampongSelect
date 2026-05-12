@@ -1,7 +1,7 @@
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase-server";
 import CaptainView from "./CaptainView";
-import type { Match, Player, Team, Availability, Selection } from "@/lib/types";
+import type { Match, Player, Team, Availability, Selection, MatchStatus } from "@/lib/types";
 
 export default async function CaptainPage() {
   const supabase = createClient();
@@ -34,6 +34,11 @@ export default async function CaptainPage() {
     supabase.from("selections").select("*"),
   ]);
 
+  const { data: matchStatus } = await supabase
+    .from("match_status")
+    .select("*")
+    .in("match_id", (matches ?? []).map((m) => m.id));
+
   return (
     <CaptainView
       me={me}
@@ -43,6 +48,7 @@ export default async function CaptainPage() {
       players={(players ?? []) as Player[]}
       availability={(avail ?? []) as Availability[]}
       selections={(selections ?? []) as Selection[]}
+      matchStatus={(matchStatus ?? []) as MatchStatus[]}
     />
   );
 }
