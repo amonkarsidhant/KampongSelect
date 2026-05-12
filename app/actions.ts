@@ -92,7 +92,7 @@ export async function notifySelectionAction(matchId: string) {
   return { success: true, count: results.filter(r => r.success).length };
 }
 
-export async function updatePlayerAvailabilityAction(playerId: string, matchDate: string, status: "yes" | "no" | null) {
+export async function updatePlayerAvailabilityAction(playerId: string, matchDate: string, status: "yes" | "no" | null, isExcused: boolean = false) {
   const { data: { user: session } } = await createClient().auth.getUser();
   if (!session) throw new Error("Unauthorized");
 
@@ -109,6 +109,7 @@ export async function updatePlayerAvailabilityAction(playerId: string, matchDate
       player_id: playerId,
       match_date: matchDate,
       status: status,
+      is_excused: isExcused,
       updated_at: new Date().toISOString()
     }, { onConflict: "player_id,match_date" });
   }

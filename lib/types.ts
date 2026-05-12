@@ -45,6 +45,7 @@ export interface Availability {
   match_date: string;
   status: AvailStatus;
   note: string | null;
+  is_excused: boolean;
   updated_at: string;
 }
 
@@ -56,6 +57,15 @@ export interface Selection {
   selected_at: string;
   is_captain: boolean;
   is_keeper: boolean;
+}
+
+export interface PoolPlayer {
+  player: Player;
+  status: "available" | "taken_by_higher" | "already_picked";
+  response: AvailStatus | null;
+  is_provisional?: boolean;
+  is_excused?: boolean;
+  takenBy?: string;
 }
 
 export interface MatchStatus {

@@ -1,14 +1,14 @@
 "use client";
 
 import { useState, useMemo, useTransition, useEffect } from "react";
-import { Check, MapPin, Clock, AlertCircle, Shield, Star, Activity, Hand, ShieldAlert } from "lucide-react";
+import { Check, MapPin, Clock, AlertCircle, Shield, Star, Activity, Hand, ShieldAlert, Copy, ExternalLink, MessageCircle } from "lucide-react";
 import { createClient } from "@/lib/supabase";
 import RoleSwitcher from "@/components/RoleSwitcher";
 import { poolForMatch } from "@/lib/cascade";
 import { notifySelectionAction } from "@/app/actions";
 import { motion, AnimatePresence } from "framer-motion";
 import { cn } from "@/lib/utils";
-import type { Match, Player, Team, Availability, Selection, AvailStatus } from "@/lib/types";
+import type { Match, Player, Team, Availability, Selection, AvailStatus, MatchStatus } from "@/lib/types";
 
 interface Props {
   me: Player;
@@ -18,6 +18,7 @@ interface Props {
   players: Player[];
   availability: Availability[];
   selections: Selection[];
+  matchStatus: MatchStatus[];
 }
 
 function roleIcon(role: string) {
@@ -48,7 +49,9 @@ function PlayerRow({
   onTogglePick,
   onToggleRole,
   isCaptain,
-  isKeeper
+  isKeeper,
+  isProvisional,
+  isExcused
 }: {
   player: Player;
   status: string;
@@ -62,6 +65,8 @@ function PlayerRow({
   onToggleRole: (id: string, role: "is_captain" | "is_keeper") => void;
   isCaptain: boolean;
   isKeeper: boolean;
+  isProvisional?: boolean;
+  isExcused?: boolean;
 }) {
   const canPick = status === "available" || status === "already_picked";
   const isTaken = status === "taken_by_higher";
@@ -69,99 +74,111 @@ function PlayerRow({
   return (
     <motion.div
       layout
-      initial={false}
-      animate={{ x: picked ? 4 : 0 }}
-      transition={{ type: "spring", stiffness: 400, damping: 30 }}
       className={cn(
-        "grid grid-cols-12 gap-3 items-center px-4 py-3 border-b border-border/50 transition-colors relative",
+        "flex flex-col border-b border-border/50 transition-colors relative",
         picked ? "bg-success/5" : "hover:bg-surface/50",
         isTaken ? "opacity-40 grayscale blur-[0.5px]" : ""
       )}
     >
-      {picked && (
-        <motion.div
-          layoutId="active-pulse"
-          className="absolute left-0 top-0 bottom-0 w-1 bg-success animate-pulse-slow"
-        />
-      )}
+      <div className="grid grid-cols-12 gap-3 items-center px-4 py-3">
+        {picked && (
+          <motion.div
+            layoutId="active-pulse"
+            className="absolute left-0 top-0 bottom-0 w-1 bg-success animate-pulse-slow"
+          />
+        )}
 
-      {/* Pick Toggle */}
-      <div className="col-span-1">
-        <button
-          onClick={() => canPick && onTogglePick(player.id)}
-          disabled={!canPick || (xiCount >= 11 && !picked)}
-          className={cn(
-            "size-6 rounded border-2 flex items-center justify-center transition-all duration-200",
-            picked
-              ? "border-success bg-success text-background"
-              : canPick && xiCount < 11
-              ? "border-border hover:border-foreground/50"
-              : "border-border/30 cursor-not-allowed"
-          )}
-        >
-          {picked && <Check size={14} strokeWidth={4} />}
-        </button>
-      </div>
+        {/* Pick Toggle */}
+        <div className="col-span-1">
+          <button
+            onClick={() => canPick && onTogglePick(player.id)}
+            disabled={!canPick || (xiCount >= 11 && !picked)}
+            className={cn(
+              "size-6 rounded border-2 flex items-center justify-center transition-all duration-200",
+              picked
+                ? "border-success bg-success text-background"
+                : canPick && xiCount < 11
+                ? "border-border hover:border-foreground/50"
+                : "border-border/30 cursor-not-allowed"
+            )}
+          >
+            {picked && <Check size={14} strokeWidth={4} />}
+          </button>
+        </div>
 
-      {/* Name & Note */}
-      <div className="col-span-5 relative">
-        <div className="flex items-center gap-2">
-          <p className={cn("text-sm font-medium", isTaken && "line-through text-foreground-muted")}>
-            {player.full_name}
-          </p>
-          {tierOrder && player.tier && player.tier < (tierOrder - 1) && (
-            <div title={`High tier player (${player.tier})`}>
-              <ShieldAlert size={12} className="text-warning" />
-            </div>
+        {/* Name */}
+        <div className="col-span-5 relative">
+          <div className="flex items-center gap-2">
+            <p className={cn("text-sm font-medium", isTaken && "line-through text-foreground-muted")}>
+              {player.full_name}
+            </p>
+            {tierOrder && player.tier && player.tier < (tierOrder - 1) && (
+              <div title={`High tier player (${player.tier})`}>
+                <ShieldAlert size={12} className="text-warning" />
+              </div>
+            )}
+            {isExcused && <span className="text-[8px] bg-blue-500/20 text-blue-300 px-1 rounded font-bold uppercase">Excused</span>}
+          </div>
+          {isTaken && (
+            <span className={cn(
+              "absolute top-1/2 -translate-y-1/2 right-0 text-[10px] font-mono font-bold uppercase px-2 py-0.5 rounded border",
+              isProvisional ? "border-warning/40 text-warning" : "border-border text-foreground-muted bg-background"
+            )}>
+              {isProvisional ? "Drafted" : "Taken"} · {takenBy}
+            </span>
           )}
         </div>
-        {note && !isTaken && <p className="text-[10px] text-warning italic mt-0.5">{note}</p>}
-        {isTaken && (
-          <span className="absolute top-1/2 -translate-y-1/2 right-4 text-[10px] font-mono font-bold uppercase bg-background px-2 py-0.5 rounded border border-border">
-            Taken · {takenBy}
-          </span>
-        )}
-      </div>
 
-      {/* Role */}
-      <div className="col-span-2 flex items-center justify-center" title={player.role}>
-        {roleIcon(player.role)}
-      </div>
+        {/* Role */}
+        <div className="col-span-2 flex items-center justify-center" title={player.role}>
+          {roleIcon(player.role)}
+        </div>
 
-      {/* Tier */}
-      <div className="col-span-1 text-center font-display text-sm text-foreground-muted">
-        {toRoman(player.tier)}
-      </div>
+        {/* Tier */}
+        <div className="col-span-1 text-center font-display text-sm text-foreground-muted">
+          {toRoman(player.tier)}
+        </div>
 
-      {/* Captain/Keeper Flags */}
-      <div className="col-span-2 flex justify-center gap-2">
-        {picked && (
-          <>
-            <button
-              onClick={() => onToggleRole(player.id, "is_captain")}
-              className={cn("p-1 rounded transition", isCaptain ? "bg-crimson/20 text-crimson" : "text-foreground-muted hover:text-foreground")}
-            >
-              <Star size={14} fill={isCaptain ? "currentColor" : "none"} />
-            </button>
-            <button
-              onClick={() => onToggleRole(player.id, "is_keeper")}
-              className={cn("p-1 rounded transition", isKeeper ? "bg-success/20 text-success" : "text-foreground-muted hover:text-foreground")}
-            >
-              <Shield size={14} fill={isKeeper ? "currentColor" : "none"} />
-            </button>
-          </>
-        )}
-      </div>
+        {/* Captain/Keeper Flags */}
+        <div className="col-span-2 flex justify-center gap-2">
+          {picked && (
+            <>
+              <button
+                onClick={() => onToggleRole(player.id, "is_captain")}
+                className={cn("p-1 rounded transition", isCaptain ? "bg-crimson/20 text-crimson" : "text-foreground-muted hover:text-foreground")}
+              >
+                <Star size={14} fill={isCaptain ? "currentColor" : "none"} />
+              </button>
+              <button
+                onClick={() => onToggleRole(player.id, "is_keeper")}
+                className={cn("p-1 rounded transition", isKeeper ? "bg-success/20 text-success" : "text-foreground-muted hover:text-foreground")}
+              >
+                <Shield size={14} fill={isKeeper ? "currentColor" : "none"} />
+              </button>
+            </>
+          )}
+        </div>
 
-      {/* Status Dot */}
-      <div className="col-span-1 flex justify-end">
-        <div className={cn(
-          "size-2.5 rounded-full shadow-[0_0_8px_currentColor]",
-          response === "yes" ? "text-success bg-success" : 
-          response === "no" ? "text-danger bg-danger" : 
-          "text-stone-600 bg-stone-600"
-        )} title={response ? `Responded: ${response.toUpperCase()}` : "No response yet"} />
+        {/* Status Dot */}
+        <div className="col-span-1 flex justify-end">
+          <div className={cn(
+            "size-2.5 rounded-full shadow-[0_0_8px_currentColor]",
+            response === "yes" ? "text-success bg-success" : 
+            response === "no" ? "text-danger bg-danger" : 
+            "text-stone-600 bg-stone-600"
+          )} title={response ? `Responded: ${response.toUpperCase()}` : "No response yet"} />
+        </div>
       </div>
+      
+      {/* High-Visibility Note */}
+      {note && !isTaken && (
+        <div className="px-12 pb-3">
+          <div className="bg-warning/5 border border-warning/20 rounded-lg px-3 py-1.5 flex items-start gap-2">
+            <AlertCircle size={10} className="text-warning mt-0.5 flex-shrink-0" />
+            <p className="text-[10px] text-warning font-medium leading-relaxed">{note}</p>
+          </div>
+        </div>
+      )}
     </motion.div>
   );
 }
@@ -174,6 +191,7 @@ export default function CaptainView({
   players,
   availability,
   selections: initialSelections,
+  matchStatus,
 }: Props) {
   const [selectedTeam, setSelectedTeam] = useState(myTeamCode);
   const teamMatches = useMemo(() => matches.filter((m) => m.team_code === selectedTeam), [matches, selectedTeam]);
@@ -223,8 +241,9 @@ export default function CaptainView({
     const availForDate = new Map<string, AvailStatus>(
       availability.filter((a) => a.match_date === match.match_date).map((a) => [a.player_id, a.status])
     );
+    const availDetails = availability.filter((a) => a.match_date === match.match_date);
     const notesForDate = new Map<string, string>(
-      availability.filter((a) => a.match_date === match.match_date).map((a) => [a.player_id, a.note ?? ""])
+      availDetails.map((a) => [a.player_id, a.note ?? ""])
     );
 
     return poolForMatch({
@@ -233,12 +252,23 @@ export default function CaptainView({
       allMatches: matches,
       playersById,
       availability: availForDate,
+      availabilityDetails: availDetails,
       selections,
+      matchStatus,
     }).map(p => ({ ...p, note: notesForDate.get(p.player.id) || "" }));
-  }, [match, teams, matches, players, availability, selections]);
+  }, [match, teams, matches, players, availability, selections, matchStatus]);
 
   const myPicks = useMemo(() => selections.filter((s) => s.match_id === matchId), [selections, matchId]);
   const xiCount = myPicks.length;
+
+  const squadBalance = useMemo(() => {
+    const balance = { Batter: 0, Bowler: 0, "All-rounder": 0, Wicketkeeper: 0 };
+    myPicks.forEach(s => {
+      const p = players.find(x => x.id === s.player_id);
+      if (p) balance[p.role]++;
+    });
+    return balance;
+  }, [myPicks, players]);
 
   const tierOrder = myTeam?.tier_order ?? null;
   const isRec = myTeam?.kind === "recreational";
@@ -298,6 +328,33 @@ export default function CaptainView({
     });
   }
 
+  function copyWhatsAppBriefing() {
+    if (!match) return;
+    const dateStr = new Date(match.match_date).toLocaleDateString("en-GB", { weekday: 'long', day: 'numeric', month: 'long' });
+    const squadNames = myPicks.map((s, i) => {
+      const p = players.find(x => x.id === s.player_id);
+      let name = p?.full_name ?? "Unknown";
+      if (s.is_captain) name += " (c)";
+      if (s.is_keeper) name += " (wk)";
+      return `${i + 1}. ${name}`;
+    }).join("\n");
+
+    const text = `🏏 *Match Day Briefing: ${match.team_code}*
+vs ${match.opposition}
+📅 ${dateStr}
+⏰ Meet: ${match.start_time?.slice(0, 5) ?? "TBC"}
+📍 Venue: ${match.venue ?? "TBC"} ${match.is_home ? "(Home)" : "(Away)"}
+
+*The Squad:*
+${squadNames}
+
+Please log in to the portal to confirm you've seen this!
+https://kampong-select.vercel.app`;
+
+    navigator.clipboard.writeText(text);
+    alert("WhatsApp Briefing copied to clipboard!");
+  }
+
   const visibleTeams = me.user_role === "admin" ? teams : teams.filter((t) => t.code === myTeamCode);
 
   return (
@@ -308,9 +365,9 @@ export default function CaptainView({
         </div>
 
         {/* Scoreboard Header */}
-        <div className={cn("flex items-end justify-between mb-8 pb-4 border-b transition-colors duration-1000", availableCount < 11 ? "border-warning/50" : "border-border")}>
+        <div className={cn("flex items-end justify-between mb-2 pb-4 border-b transition-colors duration-1000", availableCount < 11 ? "border-warning/50" : "border-border")}>
           <div>
-            <h1 className={cn("font-display text-4xl font-bold tracking-tight transition-colors duration-1000", availableCount < 11 ? "text-warning" : "text-white")}>Selection</h1>
+            <h1 className={cn("font-display text-4xl font-semibold tracking-tight transition-colors duration-1000", availableCount < 11 ? "text-warning" : "text-white")}>Selection</h1>
             <p className="text-foreground-muted font-mono text-sm mt-1">{me.captains_team ?? "Admin"}</p>
           </div>
           <div className="flex items-baseline gap-1" style={{ perspective: 1000 }}>
@@ -326,6 +383,19 @@ export default function CaptainView({
             <span className="font-display text-5xl font-black text-border mx-1">/</span>
             <span className="font-display text-5xl font-bold text-foreground-muted">11</span>
           </div>
+        </div>
+
+        {/* Live Squad Balance */}
+        <div className="flex gap-4 py-3 overflow-x-auto hide-scrollbar mb-4 border-b border-border/30">
+          {Object.entries(squadBalance).map(([role, count]) => (
+            <div key={role} className="flex items-center gap-2 flex-shrink-0">
+              <div className="bg-white/5 border border-border rounded-lg px-3 py-1.5 flex items-center gap-2">
+                {roleIcon(role)}
+                <span className="text-[10px] font-mono font-bold text-foreground-muted uppercase tracking-wider">{role}s</span>
+                <span className={cn("text-xs font-bold", count > 0 ? "text-white" : "text-white/20")}>{count}</span>
+              </div>
+            </div>
+          ))}
         </div>
 
         {/* Ticker / Banner */}
@@ -346,42 +416,51 @@ export default function CaptainView({
           </div>
         )}
 
-        {/* Filters */}
-        <div className="flex gap-4 mb-6">
-          {me.user_role === "admin" && (
-            <select
-              value={selectedTeam}
-              onChange={(e) => setSelectedTeam(e.target.value)}
-              className="bg-surface border border-border rounded-lg px-3 py-2 text-sm font-bold focus:outline-none"
-            >
-              {visibleTeams.map(t => <option key={t.code} value={t.code}>{t.code}</option>)}
-            </select>
-          )}
-          {teamMatches.length > 0 && (
-            <select
-              value={matchId}
-              onChange={(e) => setMatchId(e.target.value)}
-              className="bg-surface border border-border rounded-lg px-3 py-2 text-sm font-bold focus:outline-none flex-1"
-            >
-              {teamMatches.map(m => (
-                <option key={m.id} value={m.id}>
-                  {m.opposition} • {new Date(m.match_date).toLocaleDateString("en-GB", { day: "numeric", month: "short" })}
-                </option>
-              ))}
-            </select>
-          )}
+        {/* Filters & Actions */}
+        <div className="flex flex-col md:flex-row gap-4 mb-6">
+          <div className="flex gap-2 flex-1">
+            {me.user_role === "admin" && (
+              <select
+                value={selectedTeam}
+                onChange={(e) => setSelectedTeam(e.target.value)}
+                className="bg-surface border border-border rounded-lg px-3 py-2 text-sm font-bold focus:outline-none"
+              >
+                {visibleTeams.map(t => <option key={t.code} value={t.code}>{t.code}</option>)}
+              </select>
+            )}
+            {teamMatches.length > 0 && (
+              <select
+                value={matchId}
+                onChange={(e) => setMatchId(e.target.value)}
+                className="bg-surface border border-border rounded-lg px-3 py-2 text-sm font-bold focus:outline-none flex-1"
+              >
+                {teamMatches.map(m => (
+                  <option key={m.id} value={m.id}>
+                    {m.opposition} • {new Date(m.match_date).toLocaleDateString("en-GB", { day: "numeric", month: "short" })}
+                  </option>
+                ))}
+              </select>
+            )}
+          </div>
+          <button 
+            onClick={copyWhatsAppBriefing}
+            className="flex items-center justify-center gap-2 bg-emerald-600 hover:bg-emerald-500 text-white px-4 py-2 rounded-lg text-sm font-bold transition-all active:scale-95"
+          >
+            <MessageCircle size={16} />
+            Copy WhatsApp Brief
+          </button>
         </div>
 
         {match && (
           <div className="bg-surface border border-border rounded-2xl overflow-hidden shadow-2xl">
             {/* Table Header */}
-            <div className="grid grid-cols-12 gap-3 px-4 py-3 bg-background/50 border-b border-border">
-              <div className="col-span-1 text-[10px] font-mono text-foreground-muted uppercase tracking-widest">Pick</div>
-              <div className="col-span-5 text-[10px] font-mono text-foreground-muted uppercase tracking-widest">Name</div>
-              <div className="col-span-2 text-center text-[10px] font-mono text-foreground-muted uppercase tracking-widest">Role</div>
-              <div className="col-span-1 text-center text-[10px] font-mono text-foreground-muted uppercase tracking-widest">Tier</div>
-              <div className="col-span-2 text-center text-[10px] font-mono text-foreground-muted uppercase tracking-widest">Flags</div>
-              <div className="col-span-1 text-right text-[10px] font-mono text-foreground-muted uppercase tracking-widest">Stat</div>
+            <div className="grid grid-cols-12 gap-3 px-4 py-3 bg-background/50 border-b border-border text-[10px] font-mono text-foreground-muted uppercase tracking-widest">
+              <div className="col-span-1">Pick</div>
+              <div className="col-span-5">Name</div>
+              <div className="col-span-2 text-center">Role</div>
+              <div className="col-span-1 text-center">Tier</div>
+              <div className="col-span-2 text-center">Flags</div>
+              <div className="col-span-1 text-right">Stat</div>
             </div>
 
             {/* Players */}
@@ -389,7 +468,7 @@ export default function CaptainView({
               {pool.length === 0 ? (
                 <div className="p-12 text-center text-foreground-muted">No availability for this date.</div>
               ) : (
-                pool.map(({ player, status, response, takenBy, note }) => {
+                pool.map(({ player, status, response, takenBy, note, is_provisional, is_excused }) => {
                   const sel = selections.find(s => s.match_id === matchId && s.player_id === player.id);
                   return (
                     <PlayerRow
@@ -406,6 +485,8 @@ export default function CaptainView({
                       onToggleRole={toggleRole}
                       isCaptain={sel?.is_captain ?? false}
                       isKeeper={sel?.is_keeper ?? false}
+                      isProvisional={is_provisional}
+                      isExcused={is_excused}
                     />
                   );
                 })

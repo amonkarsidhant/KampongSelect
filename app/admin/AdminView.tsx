@@ -87,10 +87,16 @@ export default function AdminView({ me, teams, matches: initialMatches, players,
     }
   }
 
-  async function toggleAvailability(playerId: string, date: string, current: string | null) {
-    const next: "yes" | "no" | null = current === "yes" ? "no" : current === "no" ? null : "yes";
+  async function toggleAvailability(playerId: string, date: string, current: string | null, currentExcused: boolean) {
+    let next: { status: "yes" | "no" | null, excused: boolean };
+    
+    if (current === "yes") next = { status: "no", excused: false };
+    else if (current === "no" && !currentExcused) next = { status: "no", excused: true };
+    else if (current === "no" && currentExcused) next = { status: null, excused: false };
+    else next = { status: "yes", excused: false };
+
     startTransition(async () => {
-      await updatePlayerAvailabilityAction(playerId, date, next);
+      await updatePlayerAvailabilityAction(playerId, date, next.status, next.excused);
     });
   }
 
@@ -111,7 +117,7 @@ export default function AdminView({ me, teams, matches: initialMatches, players,
       <div className="max-w-6xl mx-auto px-6">
         <div className="pt-8 pb-4">
           <RoleSwitcher current="admin" userRole={me.user_role} />
-          <h1 className="font-display text-4xl font-semibold mt-6 tracking-tight text-white">Command Centre</h1>
+          <h1 className="font-display text-4xl font-semibold tracking-tight text-white">Command Centre</h1>
         </div>
 
         {/* Tab Switcher */}
@@ -256,12 +262,18 @@ export default function AdminView({ me, teams, matches: initialMatches, players,
           {activeTab === "squad" && (
             <motion.div key="squad" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="mt-8">
               <div className="mb-6 p-4 rounded-xl border border-warning/20 bg-warning/5 text-xs text-warning/80">
-                Tip: Click the reliability score to manually override availability for the active weekend ({weekend?.label}).
+                Tip: Click the reliability score to manually override availability for the active weekend ({weekend?.label}). 
+                Cycles through: Yes (Green) → No (Red) → Excused (Blue) → Clear.
               </div>
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 {playerStats.sort((a, b) => b.gamesPlayed - a.gamesPlayed).map(p => {
-                  const satAvail = availability.find(a => a.player_id === p.id && a.match_date === weekend?.dates[0])?.status ?? null;
-                  const sunAvail = availability.find(a => a.player_id === p.id && a.match_date === weekend?.dates[1])?.status ?? null;
+                  const satRec = availability.find(a => a.player_id === p.id && a.match_date === weekend?.dates[0]);
+                  const satAvail = satRec?.status ?? null;
+                  const satExcused = satRec?.is_excused ?? false;
+                  
+                  const sunRec = availability.find(a => a.player_id === p.id && a.match_date === weekend?.dates[1]);
+                  const sunAvail = sunRec?.status ?? null;
+                  const sunExcused = sunRec?.is_excused ?? false;
                   
                   return (
                     <div key={p.id} className="p-5 rounded-2xl bg-surface border border-border shadow-sm group transition-all">
@@ -279,18 +291,18 @@ export default function AdminView({ me, teams, matches: initialMatches, players,
                         </div>
                         <div 
                           className="bg-background rounded-lg p-3 group relative cursor-pointer overflow-hidden active:scale-95 transition-transform" 
-                          onClick={() => weekend && toggleAvailability(p.id, weekend.dates[0], satAvail)}
+                          onClick={() => weekend && toggleAvailability(p.id, weekend.dates[0], satAvail, satExcused)}
                         >
                           <p className="font-mono text-[9px] uppercase text-foreground-muted flex justify-between">
                             <span>Reliability</span>
-                            <span className="text-[8px] opacity-0 group-hover:opacity-100 transition-opacity">OVERRIDE</span>
+                            <span className="text-[8px] opacity-0 group-hover:opacity-100 transition-opacity uppercase">Override</span>
                           </p>
                           <p className={cn("font-display text-2xl font-bold transition-colors", p.responseRate < 50 ? "text-danger" : p.responseRate > 80 ? "text-success" : "")}>
                             {p.responseRate}%
                           </p>
                           <div className="absolute inset-x-0 bottom-0 h-1 flex">
-                             <div className={cn("flex-1", satAvail === "yes" ? "bg-success" : satAvail === "no" ? "bg-danger" : "bg-transparent")} />
-                             <div className={cn("flex-1", sunAvail === "yes" ? "bg-success" : sunAvail === "no" ? "bg-danger" : "bg-transparent")} />
+                             <div className={cn("flex-1", satAvail === "yes" ? "bg-success" : satAvail === "no" ? (satExcused ? "bg-blue-500" : "bg-danger") : "bg-transparent")} />
+                             <div className={cn("flex-1", sunAvail === "yes" ? "bg-success" : sunAvail === "no" ? (sunExcused ? "bg-blue-500" : "bg-danger") : "bg-transparent")} />
                           </div>
                         </div>
                       </div>
