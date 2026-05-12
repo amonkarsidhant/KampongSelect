@@ -371,7 +371,7 @@ function MatchManager({ teams, onAdd, matches, onDelete }: { teams: Team[]; onAd
             <span className="text-[10px] uppercase text-stone-500 font-mono">Team</span>
             <select
               value={newMatch.team_code}
-              onChange={(e) => setNewMatch({ ...newMatch, team_code: e.target.value })}
+              onChange={(e) => setNewMatch(prev => ({ ...prev, team_code: e.target.value }))}
               className="mt-1 w-full bg-stone-900 border border-stone-100/10 rounded-md p-2 text-sm text-stone-300"
             >
               {teams.map((t) => (
@@ -386,7 +386,7 @@ function MatchManager({ teams, onAdd, matches, onDelete }: { teams: Team[]; onAd
             <input
               type="date"
               value={newMatch.match_date}
-              onChange={(e) => setNewMatch({ ...newMatch, match_date: e.target.value })}
+              onChange={(e) => setNewMatch(prev => ({ ...prev, match_date: e.target.value }))}
               className="mt-1 w-full bg-stone-900 border border-stone-100/10 rounded-md p-2 text-sm text-stone-300"
             />
           </label>
@@ -396,7 +396,7 @@ function MatchManager({ teams, onAdd, matches, onDelete }: { teams: Team[]; onAd
               type="text"
               placeholder="e.g. VRA 1"
               value={newMatch.opposition}
-              onChange={(e) => setNewMatch({ ...newMatch, opposition: e.target.value })}
+              onChange={(e) => setNewMatch(prev => ({ ...prev, opposition: e.target.value }))}
               className="mt-1 w-full bg-stone-900 border border-stone-100/10 rounded-md p-2 text-sm text-stone-300"
             />
           </label>
@@ -406,7 +406,7 @@ function MatchManager({ teams, onAdd, matches, onDelete }: { teams: Team[]; onAd
               type="text"
               placeholder="e.g. Maarschalkerweerd"
               value={newMatch.venue}
-              onChange={(e) => setNewMatch({ ...newMatch, venue: e.target.value })}
+              onChange={(e) => setNewMatch(prev => ({ ...prev, venue: e.target.value }))}
               className="mt-1 w-full bg-stone-900 border border-stone-100/10 rounded-md p-2 text-sm text-stone-300"
             />
           </label>
@@ -415,7 +415,7 @@ function MatchManager({ teams, onAdd, matches, onDelete }: { teams: Team[]; onAd
             <input
               type="time"
               value={newMatch.start_time.slice(0, 5)}
-              onChange={(e) => setNewMatch({ ...newMatch, start_time: e.target.value + ":00" })}
+              onChange={(e) => setNewMatch(prev => ({ ...prev, start_time: e.target.value + ":00" }))}
               className="mt-1 w-full bg-stone-900 border border-stone-100/10 rounded-md p-2 text-sm text-stone-300"
             />
           </label>

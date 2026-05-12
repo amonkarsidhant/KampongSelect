@@ -55,16 +55,15 @@ export function poolForMatch(input: CaptainPoolInput): PoolPlayer[] {
 
   // Find all H-team matches on the same date with HIGHER tier_order
   // (i.e. tier_order < mine — H1 has order 1, H5 has order 5).
-  const higherTierMatchIds = new Set(
-    allMatches
-      .filter((m) => m.match_date === match.match_date && m.id !== match.id)
-      .filter((m) => {
-        const t = teams.find((x) => x.code === m.team_code);
-        if (!t || t.tier_order == null || myTeam.tier_order == null) return false;
-        return t.tier_order < myTeam.tier_order;
-      })
-      .map((m) => m.id)
-  );
+  const higherTierMatchIds = new Set<string>();
+  for (const m of allMatches) {
+    if (m.match_date === match.match_date && m.id !== match.id) {
+      const t = teams.find((x) => x.code === m.team_code);
+      if (t && t.tier_order != null && myTeam.tier_order != null && t.tier_order < myTeam.tier_order) {
+        higherTierMatchIds.add(m.id);
+      }
+    }
+  }
 
   // Players already picked by a higher-tier team (only relevant for competitive cascade)
   const takenByHigher = new Map<string, string>(); // player_id -> team_code
@@ -78,9 +77,12 @@ export function poolForMatch(input: CaptainPoolInput): PoolPlayer[] {
   }
 
   // Players already picked for THIS match
-  const pickedHere = new Set(
-    selections.filter((s) => s.match_id === match.id).map((s) => s.player_id)
-  );
+  const pickedHere = new Set<string>();
+  for (const s of selections) {
+    if (s.match_id === match.id) {
+      pickedHere.add(s.player_id);
+    }
+  }
 
   const result: PoolPlayer[] = [];
   for (const [playerId, status] of availability) {

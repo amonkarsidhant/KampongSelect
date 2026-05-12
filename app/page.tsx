@@ -6,6 +6,15 @@ export default async function Home() {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) redirect("/login");
 
+  // Attempt to link auth user to player record if not already done
+  if (user.email) {
+    await supabase
+      .from("players")
+      .update({ auth_user_id: user.id })
+      .eq("email", user.email)
+      .is("auth_user_id", null);
+  }
+
   const { data: player } = await supabase
     .from("players")
     .select("user_role")

@@ -18,6 +18,114 @@ interface Props {
   selections: Selection[];
 }
 
+function PlayerRow({
+  player,
+  status,
+  takenBy,
+  note,
+  picked,
+  xiCount,
+  tierOrder,
+  onTogglePick,
+  onToggleRole,
+  isCaptain,
+  isKeeper
+}: {
+  player: Player;
+  status: string;
+  takenBy?: string;
+  note: string;
+  picked: boolean;
+  xiCount: number;
+  tierOrder: number | null;
+  onTogglePick: (id: string) => void;
+  onToggleRole: (id: string, role: "is_captain" | "is_keeper") => void;
+  isCaptain: boolean;
+  isKeeper: boolean;
+}) {
+  const canPick = status === "available" || status === "already_picked";
+  return (
+    <div
+      className={`grid grid-cols-12 gap-3 items-center px-3 py-2.5 rounded-md border transition ${
+        picked
+          ? "border-kampong-red/40 bg-red-950/15"
+          : "border-stone-100/[0.06] bg-stone-100/[0.015]"
+      } ${!canPick ? "opacity-50" : ""}`}
+    >
+      <div className="col-span-1">
+        <button
+          onClick={() => canPick && onTogglePick(player.id)}
+          disabled={!canPick || (xiCount >= 11 && !picked)}
+          className={`w-6 h-6 rounded border-2 flex items-center justify-center transition ${
+            picked
+              ? "border-kampong-red bg-kampong-red"
+              : canPick && xiCount < 11
+              ? "border-stone-500 hover:border-stone-300"
+              : "border-stone-700 cursor-not-allowed"
+          }`}
+        >
+          {picked && <Check size={13} strokeWidth={3} />}
+        </button>
+      </div>
+      <div className="col-span-4">
+        <div className="flex items-center gap-1.5">
+          <p className="text-sm font-medium">{player.full_name}</p>
+          {tierOrder && player.tier && player.tier < (tierOrder - 1) && (
+            <div title={`Warning: Player tier (${player.tier}) is significantly higher than team tier (${tierOrder})`} className="text-amber-400">
+              <AlertCircle size={12} />
+            </div>
+          )}
+        </div>
+        {note && (
+          <p className="text-[10px] text-amber-200/70 italic mt-0.5">{note}</p>
+        )}
+        {!note && player.kncb_id && (
+          <p className="text-[10px] font-mono text-stone-500">KNCB #{player.kncb_id}</p>
+        )}
+      </div>
+      <div className="col-span-3 text-xs text-stone-300">{player.role}</div>
+      <div className="col-span-1 text-center text-xs font-mono">
+        {player.tier ?? "—"}
+      </div>
+      <div className="col-span-1 flex justify-center gap-1">
+        {picked && (
+          <>
+            <button
+              onClick={() => onToggleRole(player.id, "is_captain")}
+              title="Mark as Captain"
+              className={`p-1 rounded hover:bg-white/10 ${isCaptain ? "text-size-4 text-kampong-red" : "text-stone-600"}`}
+            >
+              <Star size={14} fill={isCaptain ? "currentColor" : "none"} />
+            </button>
+            <button
+              onClick={() => onToggleRole(player.id, "is_keeper")}
+              title="Mark as Wicketkeeper"
+              className={`p-1 rounded hover:bg-white/10 ${isKeeper ? "text-blue-400" : "text-stone-600"}`}
+            >
+              <Shield size={14} fill={isKeeper ? "currentColor" : "none"} />
+            </button>
+          </>
+        )}
+      </div>
+      <div className="col-span-2 flex justify-end">
+        {status === "available" ? (
+          <span className="text-[10px] px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-300">
+            Available
+          </span>
+        ) : status === "already_picked" ? (
+          <span className="text-[10px] px-2 py-0.5 rounded bg-kampong-red/15 text-red-300">
+            In your XI
+          </span>
+        ) : (
+          <span className="text-[10px] px-2 py-0.5 rounded bg-stone-500/10 text-stone-400">
+            Taken by {takenBy}
+          </span>
+        )}
+      </div>
+    </div>
+  );
+}
+
 export default function CaptainView({
   me,
   myTeamCode,
@@ -27,7 +135,7 @@ export default function CaptainView({
   availability,
   selections: initialSelections,
 }: Props) {
-  // ... (rest of the state and hooks)
+  // ... state initialization
   const [selectedTeam, setSelectedTeam] = useState(myTeamCode);
   const teamMatches = useMemo(
     () => matches.filter((m) => m.team_code === selectedTeam),
@@ -66,6 +174,7 @@ export default function CaptainView({
         });
       })
       .subscribe();
+
     return () => {
       supabase.removeChannel(channel);
     };
@@ -294,88 +403,21 @@ export default function CaptainView({
               ) : (
                 pool.map(({ player, status, takenBy, note }) => {
                   const sel = selections.find(s => s.match_id === matchId && s.player_id === player.id);
-                  const picked = !!sel;
-                  const canPick = status === "available" || status === "already_picked";
                   return (
-                    <div
+                    <PlayerRow
                       key={player.id}
-                      className={`grid grid-cols-12 gap-3 items-center px-3 py-2.5 rounded-md border transition ${
-                        picked
-                          ? "border-kampong-red/40 bg-red-950/15"
-                          : "border-stone-100/[0.06] bg-stone-100/[0.015]"
-                      } ${!canPick ? "opacity-50" : ""}`}
-                    >
-                      <div className="col-span-1">
-                        <button
-                          onClick={() => canPick && togglePick(player.id)}
-                          disabled={!canPick || (xiCount >= 11 && !picked)}
-                          className={`w-6 h-6 rounded border-2 flex items-center justify-center transition ${
-                            picked
-                              ? "border-kampong-red bg-kampong-red"
-                              : canPick && xiCount < 11
-                              ? "border-stone-500 hover:border-stone-300"
-                              : "border-stone-700 cursor-not-allowed"
-                          }`}
-                        >
-                          {picked && <Check size={13} strokeWidth={3} />}
-                        </button>
-                      </div>
-                      <div className="col-span-4">
-                        <div className="flex items-center gap-1.5">
-                          <p className="text-sm font-medium">{player.full_name}</p>
-                          {tierOrder && player.tier && player.tier < (tierOrder - 1) && (
-                            <div title={`Warning: Player tier (${player.tier}) is significantly higher than team tier (${tierOrder})`} className="text-amber-400">
-                              <AlertCircle size={12} />
-                            </div>
-                          )}
-                        </div>
-                        {note && (
-                          <p className="text-[10px] text-amber-200/70 italic mt-0.5">{note}</p>
-                        )}
-                        {!note && player.kncb_id && (
-                          <p className="text-[10px] font-mono text-stone-500">KNCB #{player.kncb_id}</p>
-                        )}
-                      </div>
-                      <div className="col-span-3 text-xs text-stone-300">{player.role}</div>
-                      <div className="col-span-1 text-center text-xs font-mono">
-                        {player.tier ?? "—"}
-                      </div>
-                      <div className="col-span-1 flex justify-center gap-1">
-                        {picked && (
-                          <>
-                            <button
-                              onClick={() => toggleRole(player.id, "is_captain")}
-                              title="Mark as Captain"
-                              className={`p-1 rounded hover:bg-white/10 ${sel.is_captain ? "text-kampong-red" : "text-stone-600"}`}
-                            >
-                              <Star size={14} fill={sel.is_captain ? "currentColor" : "none"} />
-                            </button>
-                            <button
-                              onClick={() => toggleRole(player.id, "is_keeper")}
-                              title="Mark as Wicketkeeper"
-                              className={`p-1 rounded hover:bg-white/10 ${sel.is_keeper ? "text-blue-400" : "text-stone-600"}`}
-                            >
-                              <Shield size={14} fill={sel.is_keeper ? "currentColor" : "none"} />
-                            </button>
-                          </>
-                        )}
-                      </div>
-                      <div className="col-span-2 flex justify-end">
-                        {status === "available" ? (
-                          <span className="text-[10px] px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-300">
-                            Available
-                          </span>
-                        ) : status === "already_picked" ? (
-                          <span className="text-[10px] px-2 py-0.5 rounded bg-kampong-red/15 text-red-300">
-                            In your XI
-                          </span>
-                        ) : (
-                          <span className="text-[10px] px-2 py-0.5 rounded bg-stone-500/10 text-stone-400">
-                            Taken by {takenBy}
-                          </span>
-                        )}
-                      </div>
-                    </div>
+                      player={player}
+                      status={status}
+                      takenBy={takenBy}
+                      note={note}
+                      picked={!!sel}
+                      xiCount={xiCount}
+                      tierOrder={tierOrder}
+                      onTogglePick={togglePick}
+                      onToggleRole={toggleRole}
+                      isCaptain={sel?.is_captain ?? false}
+                      isKeeper={sel?.is_keeper ?? false}
+                    />
                   );
                 })
               )}

@@ -9,6 +9,9 @@ const resend = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_API_KE
 
 export async function nudgePlayersAction(playerIds: string[], weekendLabel: string) {
   const supabase = createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) throw new Error("Unauthorized");
+
   const { data: players } = await supabase.from("players").select("email, full_name").in("id", playerIds);
 
   if (!players) return { success: false, error: "No players found" };
@@ -22,15 +25,30 @@ export async function nudgePlayersAction(playerIds: string[], weekendLabel: stri
 
 export async function notifySelectionAction(matchId: string) {
   const supabase = createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) throw new Error("Unauthorized");
   
-  // Get match and selected players
-  const { data: match } = await supabase.from("matches").select("*").eq("id", matchId).single();
-  const { data: selections } = await supabase.from("selections").select("player_id").eq("match_id", matchId);
+  // Get match and selected players in parallel (Performance optimization)
+  const [matchRes, selectionsRes] = await Promise.all([
+    supabase.from("matches").select("*").eq("id", matchId).single(),
+    supabase.from("selections").select("player_id").eq("match_id", matchId)
+  ]);
+  
+  const match = matchRes.data;
+  const selections = selectionsRes.data;
   
   if (!match || !selections) return { success: false, error: "Match or selections not found" };
 
   const playerIds = selections.map(s => s.player_id);
-  const { data: players } = await supabase.from("players").select("email, full_name").in("id", playerIds);
+  
+  // Fetch players and teams in parallel
+  const [playersRes, teamsRes] = await Promise.all([
+    supabase.from("players").select("email, full_name").in("id", playerIds),
+    supabase.from("teams").select("*").order("tier_order", { ascending: true })
+  ]);
+
+  const players = playersRes.data;
+  const teams = teamsRes.data;
 
   if (!players) return { success: false, error: "No players found" };
 
@@ -41,7 +59,6 @@ export async function notifySelectionAction(matchId: string) {
   );
 
   // TRIGGER CASCADE: Notify next captain in tier order
-  const { data: teams } = await supabase.from("teams").select("*").order("tier_order", { ascending: true });
   const myTeam = teams?.find(t => t.code === match.team_code);
   
   if (myTeam?.tier_order) {
