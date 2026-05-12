@@ -1,11 +1,13 @@
 "use client";
 
 import { useState, useMemo, useTransition, useEffect } from "react";
-import { Check, Users, MapPin, Clock, ArrowDown, AlertCircle, ChevronRight, Shield, Star } from "lucide-react";
+import { Check, MapPin, Clock, AlertCircle, Shield, Star, Activity, Hand, ShieldAlert } from "lucide-react";
 import { createClient } from "@/lib/supabase";
 import RoleSwitcher from "@/components/RoleSwitcher";
 import { poolForMatch } from "@/lib/cascade";
 import { notifySelectionAction } from "@/app/actions";
+import { motion, AnimatePresence } from "framer-motion";
+import { cn } from "@/lib/utils";
 import type { Match, Player, Team, Availability, Selection, AvailStatus } from "@/lib/types";
 
 interface Props {
@@ -16,6 +18,22 @@ interface Props {
   players: Player[];
   availability: Availability[];
   selections: Selection[];
+}
+
+function roleIcon(role: string) {
+  switch (role) {
+    case "Batter": return <Star size={14} className="text-amber-400" />;
+    case "Bowler": return <Activity size={14} className="text-crimson-400" />;
+    case "All-rounder": return <div className="flex -space-x-1"><Star size={12} className="text-amber-400"/><Activity size={12} className="text-crimson-400"/></div>;
+    case "Wicketkeeper": return <Hand size={14} className="text-emerald-400" />;
+    default: return <Star size={14} />;
+  }
+}
+
+function toRoman(num: number | null) {
+  if (!num) return "—";
+  const romans = ["", "I", "II", "III", "IV", "V"];
+  return romans[num] || num.toString();
 }
 
 function PlayerRow({
@@ -44,85 +62,105 @@ function PlayerRow({
   isKeeper: boolean;
 }) {
   const canPick = status === "available" || status === "already_picked";
+  const isTaken = status === "taken_by_higher";
+
   return (
-    <div
-      className={`grid grid-cols-12 gap-3 items-center px-3 py-2.5 rounded-md border transition ${
-        picked
-          ? "border-kampong-red/40 bg-red-950/15"
-          : "border-stone-100/[0.06] bg-stone-100/[0.015]"
-      } ${!canPick ? "opacity-50" : ""}`}
+    <motion.div
+      layout
+      initial={false}
+      animate={{ x: picked ? 4 : 0 }}
+      transition={{ type: "spring", stiffness: 400, damping: 30 }}
+      className={cn(
+        "grid grid-cols-12 gap-3 items-center px-4 py-3 border-b border-border/50 transition-colors relative",
+        picked ? "bg-success/5" : "hover:bg-surface/50",
+        isTaken ? "opacity-40 grayscale blur-[0.5px]" : ""
+      )}
     >
+      {picked && (
+        <motion.div
+          layoutId="active-pulse"
+          className="absolute left-0 top-0 bottom-0 w-1 bg-success animate-pulse-slow"
+        />
+      )}
+
+      {/* Pick Toggle */}
       <div className="col-span-1">
         <button
           onClick={() => canPick && onTogglePick(player.id)}
           disabled={!canPick || (xiCount >= 11 && !picked)}
-          className={`w-6 h-6 rounded border-2 flex items-center justify-center transition ${
+          className={cn(
+            "size-6 rounded border-2 flex items-center justify-center transition-all duration-200",
             picked
-              ? "border-kampong-red bg-kampong-red"
+              ? "border-success bg-success text-background"
               : canPick && xiCount < 11
-              ? "border-stone-500 hover:border-stone-300"
-              : "border-stone-700 cursor-not-allowed"
-          }`}
+              ? "border-border hover:border-foreground/50"
+              : "border-border/30 cursor-not-allowed"
+          )}
         >
-          {picked && <Check size={13} strokeWidth={3} />}
+          {picked && <Check size={14} strokeWidth={4} />}
         </button>
       </div>
-      <div className="col-span-4">
-        <div className="flex items-center gap-1.5">
-          <p className="text-sm font-medium">{player.full_name}</p>
+
+      {/* Name & Note */}
+      <div className="col-span-5 relative">
+        <div className="flex items-center gap-2">
+          <p className={cn("text-sm font-medium", isTaken && "line-through text-foreground-muted")}>
+            {player.full_name}
+          </p>
           {tierOrder && player.tier && player.tier < (tierOrder - 1) && (
-            <div title={`Warning: Player tier (${player.tier}) is significantly higher than team tier (${tierOrder})`} className="text-amber-400">
-              <AlertCircle size={12} />
+            <div title={`High tier player (${player.tier})`}>
+              <ShieldAlert size={12} className="text-warning" />
             </div>
           )}
         </div>
-        {note && (
-          <p className="text-[10px] text-amber-200/70 italic mt-0.5">{note}</p>
-        )}
-        {!note && player.kncb_id && (
-          <p className="text-[10px] font-mono text-stone-500">KNCB #{player.kncb_id}</p>
+        {note && !isTaken && <p className="text-[10px] text-warning italic mt-0.5">{note}</p>}
+        {isTaken && (
+          <span className="absolute top-1/2 -translate-y-1/2 right-4 text-[10px] font-mono font-bold uppercase bg-background px-2 py-0.5 rounded border border-border">
+            Taken · {takenBy}
+          </span>
         )}
       </div>
-      <div className="col-span-3 text-xs text-stone-300">{player.role}</div>
-      <div className="col-span-1 text-center text-xs font-mono">
-        {player.tier ?? "—"}
+
+      {/* Role */}
+      <div className="col-span-2 flex items-center justify-center" title={player.role}>
+        {roleIcon(player.role)}
       </div>
-      <div className="col-span-1 flex justify-center gap-1">
+
+      {/* Tier */}
+      <div className="col-span-1 text-center font-display text-sm text-foreground-muted">
+        {toRoman(player.tier)}
+      </div>
+
+      {/* Captain/Keeper Flags */}
+      <div className="col-span-2 flex justify-center gap-2">
         {picked && (
           <>
             <button
               onClick={() => onToggleRole(player.id, "is_captain")}
-              title="Mark as Captain"
-              className={`p-1 rounded hover:bg-white/10 ${isCaptain ? "text-size-4 text-kampong-red" : "text-stone-600"}`}
+              className={cn("p-1 rounded transition", isCaptain ? "bg-crimson/20 text-crimson" : "text-foreground-muted hover:text-foreground")}
             >
               <Star size={14} fill={isCaptain ? "currentColor" : "none"} />
             </button>
             <button
               onClick={() => onToggleRole(player.id, "is_keeper")}
-              title="Mark as Wicketkeeper"
-              className={`p-1 rounded hover:bg-white/10 ${isKeeper ? "text-blue-400" : "text-stone-600"}`}
+              className={cn("p-1 rounded transition", isKeeper ? "bg-success/20 text-success" : "text-foreground-muted hover:text-foreground")}
             >
               <Shield size={14} fill={isKeeper ? "currentColor" : "none"} />
             </button>
           </>
         )}
       </div>
-      <div className="col-span-2 flex justify-end">
-        {status === "available" ? (
-          <span className="text-[10px] px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-300">
-            Available
-          </span>
-        ) : status === "already_picked" ? (
-          <span className="text-[10px] px-2 py-0.5 rounded bg-kampong-red/15 text-red-300">
-            In your XI
-          </span>
-        ) : (
-          <span className="text-[10px] px-2 py-0.5 rounded bg-stone-500/10 text-stone-400">
-            Taken by {takenBy}
-          </span>
-        )}
+
+      {/* Status Dot */}
+      <div className="col-span-1 flex justify-end">
+        <div className={cn(
+          "size-2.5 rounded-full shadow-[0_0_8px_currentColor]",
+          status === "available" ? "text-success bg-success" : 
+          status === "already_picked" ? "text-success bg-success" : 
+          "text-danger bg-danger"
+        )} />
       </div>
-    </div>
+    </motion.div>
   );
 }
 
@@ -135,15 +173,10 @@ export default function CaptainView({
   availability,
   selections: initialSelections,
 }: Props) {
-  // ... state initialization
   const [selectedTeam, setSelectedTeam] = useState(myTeamCode);
-  const teamMatches = useMemo(
-    () => matches.filter((m) => m.team_code === selectedTeam),
-    [matches, selectedTeam]
-  );
+  const teamMatches = useMemo(() => matches.filter((m) => m.team_code === selectedTeam), [matches, selectedTeam]);
   const [matchId, setMatchId] = useState(teamMatches[0]?.id ?? "");
 
-  // Update matchId when team changes
   useEffect(() => {
     if (teamMatches.length && !teamMatches.find((m) => m.id === matchId)) {
       setMatchId(teamMatches[0].id);
@@ -154,7 +187,6 @@ export default function CaptainView({
   const [isPending, startTransition] = useTransition();
   const supabase = createClient();
 
-  // Live updates: subscribe to selection + availability changes
   useEffect(() => {
     const channel = supabase
       .channel("captain-realtime")
@@ -183,7 +215,6 @@ export default function CaptainView({
   const match = teamMatches.find((m) => m.id === matchId);
   const myTeam = teams.find((t) => t.code === selectedTeam);
 
-  // Build the pool using shared cascade logic
   const pool = useMemo(() => {
     if (!match) return [];
     const playersById = new Map(players.map((p) => [p.id, p]));
@@ -204,36 +235,27 @@ export default function CaptainView({
     }).map(p => ({ ...p, note: notesForDate.get(p.player.id) || "" }));
   }, [match, teams, matches, players, availability, selections]);
 
-  const myPicks = useMemo(
-    () => selections.filter((s) => s.match_id === matchId),
-    [selections, matchId]
-  );
-  const myPickIds = useMemo(() => myPicks.map(s => s.player_id), [myPicks]);
+  const myPicks = useMemo(() => selections.filter((s) => s.match_id === matchId), [selections, matchId]);
+  const xiCount = myPicks.length;
 
   const tierOrder = myTeam?.tier_order ?? null;
   const isRec = myTeam?.kind === "recreational";
 
-  // Count higher-tier picks for cascade messaging
-  const higherTeams = teams.filter(
-    (t) => t.tier_order != null && tierOrder != null && t.tier_order < tierOrder
-  );
+  const higherTeams = teams.filter((t) => t.tier_order != null && tierOrder != null && t.tier_order < tierOrder);
   const takenCount = pool.filter((p) => p.status === "taken_by_higher").length;
   const availableCount = pool.filter((p) => p.status === "available").length;
-  const xiCount = myPicks.length;
 
   function togglePick(playerId: string) {
     if (!match) return;
     const existing = selections.find((s) => s.match_id === match.id && s.player_id === playerId);
 
     if (existing) {
-      // Unpick
       setSelections((prev) => prev.filter((s) => s.id !== existing.id));
       startTransition(async () => {
         await supabase.from("selections").delete().eq("id", existing.id);
       });
     } else {
-      if (xiCount >= 11) return; // hard cap at 11
-      // Optimistic: insert with a temp id
+      if (xiCount >= 11) return;
       const optimistic: Selection = {
         id: `temp-${Date.now()}`,
         match_id: match.id,
@@ -245,11 +267,7 @@ export default function CaptainView({
       };
       setSelections((prev) => [...prev, optimistic]);
       startTransition(async () => {
-        const { data } = await supabase
-          .from("selections")
-          .insert({ match_id: match.id, player_id: playerId, selected_by: me.id })
-          .select()
-          .single();
+        const { data } = await supabase.from("selections").insert({ match_id: match.id, player_id: playerId, selected_by: me.id }).select().single();
         if (data) {
           setSelections((prev) => prev.map((s) => (s.id === optimistic.id ? (data as Selection) : s)));
         }
@@ -260,12 +278,8 @@ export default function CaptainView({
   function toggleRole(playerId: string, role: "is_captain" | "is_keeper") {
     const existing = selections.find((s) => s.match_id === matchId && s.player_id === playerId);
     if (!existing) return;
-
     const nextValue = !existing[role];
-    
-    // Optimistic update
     setSelections(prev => prev.map(s => s.id === existing.id ? { ...s, [role]: nextValue } : s));
-
     startTransition(async () => {
       await supabase.from("selections").update({ [role]: nextValue }).eq("id", existing.id);
     });
@@ -274,132 +288,104 @@ export default function CaptainView({
   async function confirmXI() {
     if (!match || xiCount !== 11) return;
     startTransition(async () => {
-      const { error } = await supabase
-        .from("match_status")
-        .upsert({ match_id: match.id, state: "confirmed", confirmed_at: new Date().toISOString(), confirmed_by: me.id });
-      
+      const { error } = await supabase.from("match_status").upsert({ match_id: match.id, state: "confirmed", confirmed_at: new Date().toISOString(), confirmed_by: me.id });
       if (!error) {
-        // Trigger The Pulse: Notify selected players
         await notifySelectionAction(match.id);
         alert(`XI confirmed for ${match.team_code} vs ${match.opposition}. The Pulse is notifying your players.`);
       }
     });
   }
 
-  // Tabs the captain can switch between (admins see all, captains see only their team)
   const visibleTeams = me.user_role === "admin" ? teams : teams.filter((t) => t.code === myTeamCode);
 
   return (
-    <main className="min-h-screen p-6">
-      <div className="max-w-6xl mx-auto">
-        <Header me={me} />
-        <RoleSwitcher current="captain" userRole={me.user_role} />
+    <main className="min-h-screen pb-20">
+      <div className="max-w-4xl mx-auto px-6">
+        <div className="flex items-center justify-between pt-8 pb-4">
+          <RoleSwitcher current="captain" userRole={me.user_role} />
+        </div>
 
-        {/* Team tabs (admin only sees them all) */}
-        {me.user_role === "admin" && (
-          <div className="flex gap-2 mt-6 mb-4 flex-wrap">
-            {visibleTeams.map((t) => (
-              <button
-                key={t.code}
-                onClick={() => setSelectedTeam(t.code)}
-                className={`px-3 py-1.5 text-xs font-medium rounded-md border transition ${
-                  selectedTeam === t.code
-                    ? "border-stone-100/30 bg-stone-100/[0.08]"
-                    : "border-stone-100/10 hover:border-stone-100/20 text-stone-400"
-                }`}
-              >
-                {t.code}
-              </button>
-            ))}
+        {/* Scoreboard Header */}
+        <div className={cn("flex items-end justify-between mb-8 pb-4 border-b transition-colors duration-1000", availableCount < 11 ? "border-warning/50" : "border-border")}>
+          <div>
+            <h1 className={cn("font-display text-4xl font-bold tracking-tight transition-colors duration-1000", availableCount < 11 ? "text-warning" : "text-white")}>Selection</h1>
+            <p className="text-foreground-muted font-mono text-sm mt-1">{me.captains_team ?? "Admin"}</p>
+          </div>
+          <div className="flex items-baseline gap-1" style={{ perspective: 1000 }}>
+            <motion.div 
+              key={xiCount}
+              initial={{ rotateX: -90, opacity: 0 }}
+              animate={{ rotateX: 0, opacity: 1 }}
+              transition={{ type: "spring", stiffness: 200, damping: 20 }}
+              className={cn("font-display text-5xl font-bold", xiCount === 11 ? "text-success" : availableCount < 11 ? "text-warning animate-pulse-slow" : "text-white")}
+            >
+              {xiCount}
+            </motion.div>
+            <span className="font-display text-5xl font-black text-border mx-1">/</span>
+            <span className="font-display text-5xl font-bold text-foreground-muted">11</span>
+          </div>
+        </div>
+
+        {/* Ticker / Banner */}
+        {takenCount > 0 && !isRec && (
+          <div className="overflow-hidden bg-warning/10 border-y border-warning/20 mb-6 py-2">
+            <motion.div
+              animate={{ x: [0, -1000] }}
+              transition={{ repeat: Infinity, duration: 20, ease: "linear" }}
+              className="whitespace-nowrap flex gap-8"
+            >
+              <p className="text-xs font-mono font-bold text-warning uppercase tracking-widest inline-block">
+                CASCADE UPDATE • {takenCount} PLAYERS SECURED BY HIGHER TIERS ({higherTeams.map(t => t.code).join(", ")}) • REMOVED FROM CURRENT POOL
+              </p>
+              <p className="text-xs font-mono font-bold text-warning uppercase tracking-widest inline-block">
+                CASCADE UPDATE • {takenCount} PLAYERS SECURED BY HIGHER TIERS ({higherTeams.map(t => t.code).join(", ")}) • REMOVED FROM CURRENT POOL
+              </p>
+            </motion.div>
           </div>
         )}
 
-        {/* Match selector */}
-        {teamMatches.length > 0 ? (
-          <div className="mt-6 mb-4 flex gap-2 flex-wrap">
-            {teamMatches.map((m) => (
-              <button
-                key={m.id}
-                onClick={() => setMatchId(m.id)}
-                className={`px-3 py-2 text-left rounded-md border text-xs transition ${
-                  matchId === m.id
-                    ? "border-kampong-red/60 bg-red-950/20"
-                    : "border-stone-100/10 hover:border-stone-100/20"
-                }`}
-              >
-                <div className="font-mono text-[10px] uppercase tracking-wider text-stone-400">
-                  {new Date(m.match_date).toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short" })}
-                </div>
-                <div className="font-medium mt-0.5">vs {m.opposition}</div>
-              </button>
-            ))}
-          </div>
-        ) : (
-          <p className="text-sm text-stone-400 mt-6">No upcoming fixtures for {selectedTeam}.</p>
-        )}
+        {/* Filters */}
+        <div className="flex gap-4 mb-6">
+          {me.user_role === "admin" && (
+            <select
+              value={selectedTeam}
+              onChange={(e) => setSelectedTeam(e.target.value)}
+              className="bg-surface border border-border rounded-lg px-3 py-2 text-sm font-bold focus:outline-none"
+            >
+              {visibleTeams.map(t => <option key={t.code} value={t.code}>{t.code}</option>)}
+            </select>
+          )}
+          {teamMatches.length > 0 && (
+            <select
+              value={matchId}
+              onChange={(e) => setMatchId(e.target.value)}
+              className="bg-surface border border-border rounded-lg px-3 py-2 text-sm font-bold focus:outline-none flex-1"
+            >
+              {teamMatches.map(m => (
+                <option key={m.id} value={m.id}>
+                  {m.opposition} • {new Date(m.match_date).toLocaleDateString("en-GB", { day: "numeric", month: "short" })}
+                </option>
+              ))}
+            </select>
+          )}
+        </div>
 
-        {match && myTeam && (
-          <>
-            {/* Match header */}
-            <div className="mt-2 mb-5 pb-4 border-b border-stone-100/10">
-              <h2 className="text-2xl font-semibold leading-tight">
-                {match.team_code} <span className="text-stone-500 italic font-normal">vs</span> {match.opposition}
-              </h2>
-              <div className="flex flex-wrap gap-4 mt-2 text-xs text-stone-400">
-                {match.start_time && (
-                  <span className="flex items-center gap-1.5">
-                    <Clock size={12} />
-                    {match.start_time.slice(0, 5)}
-                  </span>
-                )}
-                {match.venue && (
-                  <span className="flex items-center gap-1.5">
-                    <MapPin size={12} />
-                    {match.venue} {match.is_home ? "(home)" : "(away)"}
-                  </span>
-                )}
-              </div>
+        {match && (
+          <div className="bg-surface border border-border rounded-2xl overflow-hidden shadow-2xl">
+            {/* Table Header */}
+            <div className="grid grid-cols-12 gap-3 px-4 py-3 bg-background/50 border-b border-border">
+              <div className="col-span-1 text-[10px] font-mono text-foreground-muted uppercase tracking-widest">Pick</div>
+              <div className="col-span-5 text-[10px] font-mono text-foreground-muted uppercase tracking-widest">Name</div>
+              <div className="col-span-2 text-center text-[10px] font-mono text-foreground-muted uppercase tracking-widest">Role</div>
+              <div className="col-span-1 text-center text-[10px] font-mono text-foreground-muted uppercase tracking-widest">Tier</div>
+              <div className="col-span-2 text-center text-[10px] font-mono text-foreground-muted uppercase tracking-widest">Flags</div>
+              <div className="col-span-1 text-right text-[10px] font-mono text-foreground-muted uppercase tracking-widest">Stat</div>
             </div>
 
-            {/* Cascade note */}
-            {!isRec && tierOrder && tierOrder > 1 && (
-              <div className="mb-4 p-3 rounded-md bg-amber-500/[0.06] border border-amber-500/20 flex items-start gap-2">
-                <ArrowDown size={14} className="text-amber-400 mt-0.5 flex-shrink-0" />
-                <p className="text-xs text-amber-200/90">
-                  {takenCount} player{takenCount === 1 ? " has" : "s have"} been picked by{" "}
-                  {higherTeams.map((t) => t.code).join(", ")} on this date and are excluded from your pool.
-                </p>
-              </div>
-            )}
-            {isRec && (
-              <div className="mb-4 p-3 rounded-md bg-stone-500/[0.06] border border-stone-500/20">
-                <p className="text-xs text-stone-300">
-                  Recreational team — independent pool. Your selections don&apos;t affect H-team selection.
-                </p>
-              </div>
-            )}
-
-            {/* Stat tiles */}
-            <div className="grid grid-cols-3 gap-3 mb-5">
-              <Stat label="Available" value={availableCount} accent="emerald" />
-              <Stat label="Taken (higher tier)" value={takenCount} accent="stone" />
-              <Stat label="Your XI" value={`${xiCount}/11`} accent="red" />
-            </div>
-
-            {/* Player list */}
-            <div className="space-y-1">
-              <div className="grid grid-cols-12 gap-3 px-3 pb-1 text-[10px] uppercase tracking-wider text-stone-500 font-mono">
-                <div className="col-span-1">Pick</div>
-                <div className="col-span-4">Player</div>
-                <div className="col-span-3">Role</div>
-                <div className="col-span-1 text-center">Tier</div>
-                <div className="col-span-1 text-center">Cap/Wk</div>
-                <div className="col-span-2 text-right">Status</div>
-              </div>
+            {/* Players */}
+            <AnimatePresence mode="popLayout">
               {pool.length === 0 ? (
-                <div className="p-6 text-center border border-stone-100/10 rounded-lg text-sm text-stone-400">
-                  No players have set themselves available for this date yet.
-                </div>
+                <div className="p-12 text-center text-foreground-muted">No availability for this date.</div>
               ) : (
                 pool.map(({ player, status, takenBy, note }) => {
                   const sel = selections.find(s => s.match_id === matchId && s.player_id === player.id);
@@ -421,78 +407,32 @@ export default function CaptainView({
                   );
                 })
               )}
-            </div>
-
-            {/* Confirm bar */}
-            <div className="mt-6 flex items-center justify-between p-4 rounded-lg border border-stone-100/10">
-              <div>
-                <p className="text-[10px] uppercase tracking-wider text-stone-500">XI Summary</p>
-                <p className="text-sm mt-1">
-                  {xiCount === 11
-                    ? <span className="text-emerald-300">Squad complete — ready to confirm</span>
-                    : <span className="text-stone-300">{11 - xiCount} more to pick</span>
-                  }
-                </p>
-              </div>
+            </AnimatePresence>
+            
+            {/* Action Footer */}
+            <div className="p-4 bg-background/50 border-t border-border flex justify-between items-center">
+              <p className="font-mono text-sm text-foreground-muted">
+                {xiCount === 11 ? <span className="text-success font-bold">11/11 SELECTED</span> : `${xiCount}/11 SELECTED`}
+              </p>
               <button
                 disabled={xiCount !== 11 || isPending}
                 onClick={confirmXI}
-                className={`px-4 py-2 text-sm font-medium rounded-md flex items-center gap-1.5 transition ${
-                  xiCount === 11
-                    ? "bg-stone-100 text-stone-900 hover:bg-white"
-                    : "bg-stone-800 text-stone-500 cursor-not-allowed"
-                }`}
+                className={cn(
+                  "relative overflow-hidden px-6 py-2.5 rounded-lg font-bold transition-all",
+                  xiCount === 11 
+                    ? "bg-white text-background hover:scale-105" 
+                    : "bg-surface text-foreground-muted border border-border cursor-not-allowed"
+                )}
               >
-                Confirm XI <ChevronRight size={14} />
+                {xiCount === 11 && (
+                  <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/40 to-transparent -translate-x-full animate-shimmer" />
+                )}
+                Confirm XI
               </button>
             </div>
-
-            {availableCount < 11 && (
-              <div className="mt-3 p-3 rounded-md bg-rose-500/[0.06] border border-rose-500/20 flex items-start gap-2">
-                <AlertCircle size={14} className="text-rose-400 mt-0.5 flex-shrink-0" />
-                <p className="text-xs text-rose-200/90">
-                  Pool is short — only {availableCount} players available. Consider nudging non-responders or pulling someone from a lower tier.
-                </p>
-              </div>
-            )}
-          </>
+          </div>
         )}
       </div>
     </main>
-  );
-}
-
-function Header({ me }: { me: Player }) {
-  return (
-    <div className="flex items-center justify-between pb-4 mb-2 border-b border-stone-100/10">
-      <div className="flex items-center gap-3">
-        <div className="w-9 h-9 rounded-full bg-kampong-red flex items-center justify-center text-white font-semibold text-sm">
-          K
-        </div>
-        <div>
-          <p className="font-semibold leading-tight">KampongSelect</p>
-          <p className="text-xs text-stone-400">
-            Captain — {me.captains_team ?? "Admin"}
-          </p>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function Stat({ label, value, accent }: { label: string; value: string | number; accent: "emerald" | "stone" | "red" }) {
-  const colors = {
-    emerald: "text-emerald-300",
-    stone: "text-stone-300",
-    red: "text-red-300",
-  };
-  return (
-    <div className="p-3 rounded-md border border-stone-100/10 bg-stone-100/[0.02]">
-      <p className="text-[10px] uppercase tracking-wider text-stone-500 flex items-center gap-1">
-        <Users size={10} className={colors[accent]} />
-        {label}
-      </p>
-      <p className="text-2xl font-semibold mt-1">{value}</p>
-    </div>
   );
 }

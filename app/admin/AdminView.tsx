@@ -1,11 +1,13 @@
 "use client";
 
-import { useMemo, useState, useTransition } from "react";
-import { Bell, Download, AlertTriangle, Users, Calendar, CheckCircle, Circle, Plus, Trash2, MapPin, TrendingUp, CreditCard } from "lucide-react";
+import { useMemo, useState, useTransition, useEffect } from "react";
+import { Bell, Download, AlertTriangle, Users, Calendar, CheckCircle, Circle, Plus, Trash2, TrendingUp, CreditCard } from "lucide-react";
 import { createClient } from "@/lib/supabase";
 import RoleSwitcher from "@/components/RoleSwitcher";
 import { findConflicts } from "@/lib/cascade";
 import { nudgePlayersAction } from "@/app/actions";
+import { motion, AnimatePresence } from "framer-motion";
+import { cn } from "@/lib/utils";
 import type { Match, Player, Team, Availability, Selection, MatchStatus } from "@/lib/types";
 
 interface Props {
@@ -20,28 +22,23 @@ interface Props {
 
 export default function AdminView({ me, teams, matches: initialMatches, players, availability, selections, matchStatus }: Props) {
   const [activeTab, setActiveTab] = useState<"weekend" | "squad" | "matches">("weekend");
-  const [showConflicts, setShowConflicts] = useState(false);
   const [matches, setMatches] = useState<Match[]>(initialMatches);
   const [isPending, startTransition] = useTransition();
   const supabase = createClient();
 
-  // Group matches by weekend
   const weekends = useMemo(() => groupByWeekend(matches), [matches]);
   const [activeWeekend, setActiveWeekend] = useState<string>(weekends[0]?.id ?? "");
   const weekend = weekends.find((w) => w.id === activeWeekend);
 
-  // Stats for the "Squad" view
   const playerStats = useMemo(() => {
     return players.map(p => {
       const gamesPlayed = selections.filter(s => {
-        const m = matches.find(m => m.id === s.match_id);
+        const m = matches.find(x => x.id === s.match_id);
         return s.player_id === p.id && m && new Date(m.match_date) < new Date();
       }).length;
-
       const responses = availability.filter(a => a.player_id === p.id).length;
       const totalPossible = weekends.length * 2;
       const responseRate = totalPossible > 0 ? Math.round((responses / totalPossible) * 100) : 0;
-
       return { ...p, gamesPlayed, responseRate };
     });
   }, [players, selections, matches, availability, weekends]);
@@ -81,450 +78,235 @@ export default function AdminView({ me, teams, matches: initialMatches, players,
   }, [weekend, availability, players]);
 
   async function nudgeNonResponders() {
-    if (nonResponders.length === 0) {
-      alert("Everyone has responded already.");
-      return;
-    }
-    const ok = confirm(`Send Pulse nudges to ${nonResponders.length} players who haven't responded for ${weekend?.label}?`);
-    if (ok) {
+    if (nonResponders.length === 0) return alert("Everyone has responded already.");
+    if (confirm(`Send Pulse nudges to ${nonResponders.length} players?`)) {
       startTransition(async () => {
         const res = await nudgePlayersAction(nonResponders.map(p => p.id), weekend?.label ?? "upcoming weekend");
-        if (res.success) alert(`Pulse Engine: ${res.count} nudges sent successfully.`);
+        if (res.success) alert(`Pulse Engine: ${res.count} nudges sent.`);
       });
     }
   }
 
-  function exportTeamSheets() {
-    if (!weekend) return;
-    const lines: string[] = [`Team sheets — ${weekend.label}`, ""];
-    for (const tp of teamProgress) {
-      const picks = selections.filter((s) => s.match_id === tp.match.id);
-      lines.push(`${tp.match.team_code} vs ${tp.match.opposition} — ${tp.match.match_date}`);
-      lines.push(`Venue: ${tp.match.venue ?? "TBC"}`);
-      if (picks.length === 0) {
-        lines.push("  (no XI confirmed)");
-      } else {
-        picks.forEach((p, i) => {
-          const player = playersById.get(p.player_id);
-          lines.push(`  ${i + 1}. ${player?.full_name ?? "Unknown"}`);
-        });
-      }
-      lines.push("");
-    }
-    const blob = new Blob([lines.join("\n")], { type: "text/plain" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `team-sheets-${weekend.id}.txt`;
-    a.click();
-    URL.revokeObjectURL(url);
-  }
-
-  async function handleAddMatch(newMatch: any) {
-    startTransition(async () => {
-      const { data, error } = await supabase.from("matches").insert(newMatch).select().single();
-      if (data) {
-        setMatches(prev => [...prev, data as Match]);
-      } else if (error) {
-        alert("Failed to add match: " + error.message);
-      }
+  // Waterfall visualization calculation
+  const totalYes = stats?.availYes ?? 0;
+  let remainingPool = totalYes;
+  const waterfallData = teamProgress
+    .sort((a, b) => (a.team?.tier_order ?? 99) - (b.team?.tier_order ?? 99))
+    .map(tp => {
+      const isRec = tp.team?.kind === "recreational";
+      const poolAtStart = isRec ? totalYes : remainingPool; // Rec teams pick from full pool
+      if (!isRec && tp.status === "confirmed") remainingPool -= 11;
+      return { ...tp, poolAtStart };
     });
-  }
-
-  async function handleDeleteMatch(id: string) {
-    if (!confirm("Are you sure you want to delete this match?")) return;
-    startTransition(async () => {
-      const { error } = await supabase.from("matches").delete().eq("id", id);
-      if (!error) {
-        setMatches(prev => prev.filter(m => m.id !== id));
-      } else {
-        alert("Failed to delete match: " + error.message);
-      }
-    });
-  }
 
   return (
-    <main className="min-h-screen p-6">
-      <div className="max-w-6xl mx-auto">
-        <Header me={me} />
-        <RoleSwitcher current="admin" userRole={me.user_role} />
-
-        {/* Tab Switcher */}
-        <div className="flex gap-4 mt-6 border-b border-stone-100/10">
-          <button
-            onClick={() => setActiveTab("weekend")}
-            className={`pb-3 text-sm font-medium transition ${
-              activeTab === "weekend" ? "text-white border-b-2 border-kampong-red" : "text-stone-500 hover:text-stone-300"
-            }`}
-          >
-            Selection Hub
-          </button>
-          <button
-            onClick={() => setActiveTab("squad")}
-            className={`pb-3 text-sm font-medium transition ${
-              activeTab === "squad" ? "text-white border-b-2 border-kampong-red" : "text-stone-500 hover:text-stone-300"
-            }`}
-          >
-            Reliability & Squad
-          </button>
-          <button
-            onClick={() => setActiveTab("matches")}
-            className={`pb-3 text-sm font-medium transition ${
-              activeTab === "matches" ? "text-white border-b-2 border-kampong-red" : "text-stone-500 hover:text-stone-300"
-            }`}
-          >
-            Fixtures
-          </button>
+    <main className="min-h-screen pb-20">
+      <div className="max-w-6xl mx-auto px-6">
+        <div className="pt-8 pb-4">
+          <RoleSwitcher current="admin" userRole={me.user_role} />
+          <h1 className="font-display text-4xl font-bold mt-6 tracking-tight text-white">Command Centre</h1>
         </div>
 
-        {activeTab === "weekend" && (
-          <div className="animate-in fade-in slide-in-from-bottom-2 duration-300">
-            <div className="flex justify-between items-center mt-6 mb-4">
-              <div className="flex gap-2 flex-wrap">
-                {weekends.map((w) => (
-                  <button
-                    key={w.id}
-                    onClick={() => setActiveWeekend(w.id)}
-                    className={`px-3 py-1.5 text-xs font-medium rounded-md border transition ${
-                      activeWeekend === w.id
-                        ? "border-stone-100/30 bg-stone-100/[0.08]"
-                        : "border-stone-100/10 hover:border-stone-100/20 text-stone-400"
-                    }`}
-                  >
-                    {w.label}
-                  </button>
-                ))}
-              </div>
-            </div>
+        {/* Tab Switcher */}
+        <div className="flex gap-6 mt-4 border-b border-border/50">
+          {(["weekend", "squad", "matches"] as const).map(tab => (
+            <button
+              key={tab}
+              onClick={() => setActiveTab(tab)}
+              className={cn(
+                "pb-3 text-sm font-bold uppercase tracking-widest font-mono transition-colors relative",
+                activeTab === tab ? "text-crimson" : "text-foreground-muted hover:text-foreground"
+              )}
+            >
+              {tab === "weekend" ? "War Room" : tab === "squad" ? "Squad Intel" : "Fixtures"}
+              {activeTab === tab && (
+                <motion.div layoutId="tab-indicator" className="absolute bottom-0 left-0 right-0 h-0.5 bg-crimson" />
+              )}
+            </button>
+          ))}
+        </div>
 
-            {weekend && stats && (
-              <>
-                <h2 className="text-xl font-semibold mt-6 mb-4">{weekend.label}</h2>
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
-                  <Stat label="Squad size" value={stats.totalPlayers} icon={<Users size={12} />} />
-                  <Stat
-                    label="Responses"
-                    value={`${stats.responded}/${stats.totalNeeded}`}
-                    icon={<CheckCircle size={12} />}
-                    accent="info"
-                  />
-                  <Stat label="Said Yes" value={stats.availYes} icon={<Calendar size={12} />} accent="success" />
-                  <Stat
-                    label="Conflicts"
-                    value={conflicts.length}
-                    icon={<AlertTriangle size={12} />}
-                    accent={conflicts.length > 0 ? "danger" : "stone"}
-                    onClick={() => setShowConflicts((v) => !v)}
-                  />
+        <AnimatePresence mode="wait">
+          {activeTab === "weekend" && weekend && stats && (
+            <motion.div
+              key="weekend"
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -10 }}
+              className="mt-8"
+            >
+              {/* Weekend Selector */}
+              <select 
+                value={activeWeekend} 
+                onChange={e => setActiveWeekend(e.target.value)}
+                className="bg-transparent font-display text-2xl font-bold focus:outline-none mb-8 cursor-pointer hover:text-crimson transition-colors"
+              >
+                {weekends.map(w => <option key={w.id} value={w.id} className="bg-surface text-base font-sans">{w.label}</option>)}
+              </select>
+
+              {/* Timeline War Room View */}
+              <div className="grid grid-cols-2 gap-8 mb-12 relative">
+                {/* Conflict Rendering over timeline */}
+                {conflicts.map((c, i) => (
+                  <div key={i} className="absolute left-1/2 -translate-x-1/2 top-4 z-10 flex flex-col items-center">
+                    <div className="size-8 rounded-full bg-danger/20 border border-danger flex items-center justify-center text-danger animate-pulse-slow shadow-[0_0_15px_rgba(239,68,68,0.4)]">
+                      <AlertTriangle size={16} />
+                    </div>
+                    <span className="text-[10px] font-mono mt-1 text-danger">{playersById.get(c.playerId)?.full_name}</span>
+                  </div>
+                ))}
+
+                {weekend.dates.map(date => {
+                  const dayName = new Date(date).toLocaleDateString('en-GB', { weekday: 'long' });
+                  const dayMatches = teamProgress.filter(tp => tp.match.match_date === date);
+                  return (
+                    <div key={date}>
+                      <h3 className="font-mono text-xs uppercase tracking-widest text-foreground-muted mb-4 border-b border-border/50 pb-2">{dayName}</h3>
+                      <div className="space-y-3">
+                        {dayMatches.map(tp => (
+                          <div 
+                            key={tp.match.id} 
+                            className={cn(
+                              "p-4 rounded-xl border transition-all",
+                              tp.status === "confirmed" ? "bg-success/5 border-success/30" :
+                              tp.status === "selecting" ? "bg-warning/5 border-warning/30" :
+                              "bg-danger/5 border-danger/30"
+                            )}
+                          >
+                            <div className="flex justify-between items-center">
+                              <span className="font-display font-bold text-lg">{tp.team?.code}</span>
+                              <span className={cn(
+                                "text-[10px] font-mono font-bold uppercase px-2 py-0.5 rounded",
+                                tp.status === "confirmed" ? "bg-success/20 text-success" :
+                                tp.status === "selecting" ? "bg-warning/20 text-warning" :
+                                "bg-danger/20 text-danger"
+                              )}>{tp.status}</span>
+                            </div>
+                            <p className="text-sm text-foreground-muted mt-1">vs {tp.match.opposition}</p>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+
+              <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+                {/* Stats Rings */}
+                <div className="lg:col-span-1 space-y-6">
+                  <div className="p-6 rounded-2xl bg-surface border border-border">
+                    <h3 className="font-mono text-xs uppercase tracking-widest text-foreground-muted mb-6">Response Rate</h3>
+                    <div className="relative size-32 mx-auto">
+                      <svg viewBox="0 0 100 100" className="rotate-[-90deg]">
+                        <circle cx="50" cy="50" r="45" fill="none" stroke="currentColor" strokeWidth="8" className="text-border" />
+                        <motion.circle 
+                          cx="50" cy="50" r="45" fill="none" stroke="currentColor" strokeWidth="8" 
+                          strokeDasharray={283} strokeDashoffset={283 - (283 * (stats.responded / stats.totalNeeded))}
+                          strokeLinecap="round" className="text-crimson" 
+                          initial={{ strokeDashoffset: 283 }} animate={{ strokeDashoffset: 283 - (283 * (stats.responded / stats.totalNeeded)) }} transition={{ duration: 1, delay: 0.2 }}
+                        />
+                      </svg>
+                      <div className="absolute inset-0 flex flex-col items-center justify-center">
+                        <span className="font-display text-3xl font-bold">{Math.round((stats.responded / stats.totalNeeded) * 100)}%</span>
+                      </div>
+                    </div>
+                    <button onClick={nudgeNonResponders} disabled={nonResponders.length === 0} className="w-full mt-6 py-2 bg-crimson text-white font-bold rounded-lg hover:bg-crimson-500 disabled:opacity-50 transition">
+                      Nudge {nonResponders.length} Players
+                    </button>
+                  </div>
                 </div>
 
-                {showConflicts && (
-                  <div className="mb-6 p-4 rounded-lg border border-rose-500/30 bg-rose-950/15">
-                    <p className="text-sm font-medium text-rose-300 mb-2">Double-bookings</p>
-                    {conflicts.length === 0 ? (
-                      <p className="text-xs text-stone-300">No conflicts — every player is in at most one team per date.</p>
-                    ) : (
-                      <ul className="space-y-1.5 text-xs">
-                        {conflicts.map((c, i) => (
-                          <li key={i} className="text-stone-300">
-                            <span className="font-medium text-rose-200">{playersById.get(c.playerId)?.full_name ?? "Unknown"}</span>
-                            {" "}is selected for {c.teams.join(", ")} on {c.date}.
-                          </li>
-                        ))}
-                      </ul>
-                    )}
-                  </div>
-                )}
-
-                <div className="mb-6">
-                  <p className="text-sm font-medium mb-2">Selection cascade</p>
-                  <div className="border border-stone-100/10 rounded-lg overflow-hidden">
-                    {teamProgress.map((tp, i) => (
-                      <div
-                        key={tp.match.id}
-                        className={`grid grid-cols-12 gap-3 items-center px-4 py-3 text-sm ${
-                          i > 0 ? "border-t border-stone-100/[0.06]" : ""
-                        }`}
-                      >
-                        <div className="col-span-2 font-medium">{tp.match.team_code}</div>
-                        <div className="col-span-5 flex items-center gap-2">
-                          <div className="flex-1 h-1.5 bg-stone-100/[0.06] rounded-full overflow-hidden">
-                            <div
-                              className={`h-full transition-all ${
-                                tp.status === "confirmed"
-                                  ? "bg-emerald-500"
-                                  : tp.picked > 0
-                                  ? "bg-blue-500"
-                                  : "bg-stone-600"
-                              }`}
-                              style={{ width: `${(tp.picked / 11) * 100}%` }}
-                            />
-                          </div>
-                          <span className="text-[11px] font-mono text-stone-400 min-w-[36px]">{tp.picked}/11</span>
+                {/* Waterfall */}
+                <div className="lg:col-span-2 p-6 rounded-2xl bg-surface border border-border">
+                  <h3 className="font-mono text-xs uppercase tracking-widest text-foreground-muted mb-6">Cascade Flow</h3>
+                  <div className="space-y-4">
+                    {waterfallData.map((tp, i) => (
+                      <div key={tp.match.id} className="relative pl-6">
+                        {/* Connecting line */}
+                        {i > 0 && <div className="absolute left-2.5 top-[-16px] bottom-6 w-[2px] bg-border/50" />}
+                        <div className="absolute left-1.5 top-2 size-2 rounded-full bg-border" />
+                        
+                        <div className="flex justify-between items-center mb-1">
+                          <span className="font-bold text-sm">{tp.team?.code}</span>
+                          <span className="font-mono text-[10px] text-foreground-muted">Pool: {tp.poolAtStart}</span>
                         </div>
-                        <div className="col-span-2 text-xs text-stone-400">
-                          {tp.team?.tier_order ? `Tier ${tp.team.tier_order}` : "Rec"}
-                        </div>
-                        <div className="col-span-2 text-xs text-stone-400">
-                          {new Date(tp.match.match_date).toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short" })}
-                        </div>
-                        <div className="col-span-1 flex justify-end">
-                          <StatusBadge state={tp.status} />
+                        <div className="h-2 w-full bg-background rounded-full overflow-hidden">
+                          <motion.div 
+                            initial={{ width: 0 }}
+                            animate={{ width: `${(tp.picked / 11) * 100}%` }}
+                            transition={{ duration: 1, delay: i * 0.1 }}
+                            className={cn("h-full", tp.status === "confirmed" ? "bg-success" : "bg-blue-500")}
+                          />
                         </div>
                       </div>
                     ))}
                   </div>
                 </div>
+              </div>
+            </motion.div>
+          )}
 
-                <div className="flex flex-wrap gap-2">
-                  <button
-                    disabled={isPending}
-                    onClick={nudgeNonResponders}
-                    className="px-3 py-2 text-xs font-medium rounded-md border border-stone-100/15 hover:bg-stone-100/[0.04] flex items-center gap-1.5 transition disabled:opacity-50"
-                  >
-                    <Bell size={12} className="text-amber-400" /> Nudge {nonResponders.length} non-responder{nonResponders.length === 1 ? "" : "s"}
-                  </button>
-                  <button
-                    onClick={exportTeamSheets}
-                    className="px-3 py-2 text-xs font-medium rounded-md border border-stone-100/15 hover:bg-stone-100/[0.04] flex items-center gap-1.5"
-                  >
-                    <Download size={12} /> Export team sheets
-                  </button>
-                </div>
-              </>
-            )}
-          </div>
-        )}
-
-        {activeTab === "squad" && (
-          <div className="mt-6 animate-in fade-in slide-in-from-bottom-2 duration-300">
-            <h2 className="text-xl font-semibold mb-6 flex items-center gap-2">
-              <TrendingUp size={20} className="text-kampong-red" />
-              Squad Performance & Reliability
-            </h2>
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-              {playerStats.sort((a, b) => b.gamesPlayed - a.gamesPlayed).map(p => (
-                <div key={p.id} className="p-4 rounded-xl border border-stone-100/10 bg-stone-100/[0.02] group hover:border-stone-100/20 transition-all shadow-sm">
-                  <div className="flex justify-between items-start mb-3">
-                    <div>
-                      <p className="text-sm font-medium">{p.full_name}</p>
-                      <p className="text-[10px] text-stone-500 uppercase font-mono">{p.role} · Tier {p.tier ?? "—"}</p>
-                    </div>
-                    <div className="flex flex-col items-end gap-1">
-                      <div className={`text-[10px] px-2 py-0.5 rounded font-bold ${p.active ? "bg-emerald-500/10 text-emerald-400" : "bg-rose-500/10 text-rose-400"}`}>
-                        {p.active ? "ACTIVE" : "INACTIVE"}
+          {activeTab === "squad" && (
+            <motion.div key="squad" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="mt-8">
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                {playerStats.sort((a, b) => b.gamesPlayed - a.gamesPlayed).map(p => (
+                  <div key={p.id} className="p-5 rounded-2xl bg-surface border border-border shadow-sm">
+                    <div className="flex justify-between items-start mb-4">
+                      <div>
+                        <h3 className="font-display text-lg font-bold">{p.full_name}</h3>
+                        <p className="font-mono text-[10px] uppercase text-foreground-muted mt-1">{p.role} · Tier {toRoman(p.tier)}</p>
                       </div>
-                      <div className="text-[9px] flex items-center gap-1 text-emerald-500/80">
-                        <CreditCard size={8} /> PAID
+                      {p.active ? <CheckCircle size={16} className="text-success" /> : <Circle size={16} className="text-border" />}
+                    </div>
+                    <div className="grid grid-cols-2 gap-2">
+                      <div className="bg-background rounded-lg p-3">
+                        <p className="font-mono text-[9px] uppercase text-foreground-muted">Caps</p>
+                        <p className="font-display text-2xl font-bold">{p.gamesPlayed}</p>
+                      </div>
+                      <div className="bg-background rounded-lg p-3">
+                        <p className="font-mono text-[9px] uppercase text-foreground-muted">Reliability</p>
+                        <p className={cn("font-display text-2xl font-bold", p.responseRate < 50 ? "text-danger" : p.responseRate > 80 ? "text-success" : "")}>
+                          {p.responseRate}%
+                        </p>
                       </div>
                     </div>
                   </div>
-                  <div className="grid grid-cols-2 gap-4 mt-4">
-                    <div className="p-2 rounded bg-stone-100/[0.03] border border-stone-100/5 group-hover:bg-stone-100/[0.06] transition-colors">
-                      <p className="text-[9px] text-stone-500 uppercase">Games Played</p>
-                      <p className="text-lg font-bold">{p.gamesPlayed}</p>
-                    </div>
-                    <div className="p-2 rounded bg-stone-100/[0.03] border border-stone-100/5 group-hover:bg-stone-100/[0.06] transition-colors">
-                      <p className="text-[9px] text-stone-500 uppercase">Response Rate</p>
-                      <p className="text-lg font-bold">{p.responseRate}%</p>
-                    </div>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
+                ))}
+              </div>
+            </motion.div>
+          )}
 
-        {activeTab === "matches" && (
-          <div className="animate-in fade-in slide-in-from-bottom-2 duration-300">
-            <MatchManager teams={teams} onAdd={handleAddMatch} matches={matches} onDelete={handleDeleteMatch} />
-          </div>
-        )}
+          {activeTab === "matches" && (
+            <motion.div key="matches" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="mt-8">
+              <div className="p-6 bg-surface border border-border rounded-2xl mb-8">
+                <h3 className="font-display text-xl mb-4">Fixtures Management</h3>
+                <p className="text-sm text-foreground-muted mb-4">Fixture management happens via SQL import or dashboard sync in this version.</p>
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
 
         {weekends.length === 0 && activeTab === "weekend" && (
-          <p className="mt-6 text-sm text-stone-400">No upcoming matches in the next 14 days.</p>
+          <div className="mt-12 text-center">
+            <svg viewBox="0 0 200 100" className="w-full max-w-md mx-auto opacity-20">
+              <rect x="10" y="10" width="180" height="80" fill="none" stroke="currentColor" strokeWidth="2" />
+              <rect x="80" y="10" width="40" height="80" fill="none" stroke="currentColor" strokeWidth="2" />
+              <line x1="80" y1="30" x2="120" y2="30" stroke="currentColor" strokeWidth="1" strokeDasharray="4 2" />
+              <line x1="80" y1="70" x2="120" y2="70" stroke="currentColor" strokeWidth="1" strokeDasharray="4 2" />
+            </svg>
+            <h2 className="font-display text-2xl mt-6">No fixtures scheduled</h2>
+            <p className="text-foreground-muted mt-2">Enjoy the weekend off.</p>
+          </div>
         )}
       </div>
     </main>
   );
 }
 
-function MatchManager({ teams, onAdd, matches, onDelete }: { teams: Team[]; onAdd: (m: any) => void; matches: Match[]; onDelete: (id: string) => void }) {
-  const [newMatch, setNewMatch] = useState({
-    team_code: teams[0]?.code ?? "",
-    match_date: new Date().toISOString().slice(0, 10),
-    opposition: "",
-    venue: "",
-    is_home: true,
-    start_time: "11:00:00",
-  });
-
-  return (
-    <div className="mt-6 space-y-6">
-      <div className="p-4 rounded-lg border border-stone-100/10 bg-stone-100/[0.02]">
-        <h3 className="text-sm font-medium mb-4 flex items-center gap-2">
-          <Plus size={14} className="text-stone-400" />
-          Add New Fixture
-        </h3>
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-          <label className="block">
-            <span className="text-[10px] uppercase text-stone-500 font-mono">Team</span>
-            <select
-              value={newMatch.team_code}
-              onChange={(e) => setNewMatch(prev => ({ ...prev, team_code: e.target.value }))}
-              className="mt-1 w-full bg-stone-900 border border-stone-100/10 rounded-md p-2 text-sm text-stone-300"
-            >
-              {teams.map((t) => (
-                <option key={t.code} value={t.code}>
-                  {t.code} — {t.name}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label className="block">
-            <span className="text-[10px] uppercase text-stone-500 font-mono">Date</span>
-            <input
-              type="date"
-              value={newMatch.match_date}
-              onChange={(e) => setNewMatch(prev => ({ ...prev, match_date: e.target.value }))}
-              className="mt-1 w-full bg-stone-900 border border-stone-100/10 rounded-md p-2 text-sm text-stone-300"
-            />
-          </label>
-          <label className="block">
-            <span className="text-[10px] uppercase text-stone-500 font-mono">Opposition</span>
-            <input
-              type="text"
-              placeholder="e.g. VRA 1"
-              value={newMatch.opposition}
-              onChange={(e) => setNewMatch(prev => ({ ...prev, opposition: e.target.value }))}
-              className="mt-1 w-full bg-stone-900 border border-stone-100/10 rounded-md p-2 text-sm text-stone-300"
-            />
-          </label>
-          <label className="block">
-            <span className="text-[10px] uppercase text-stone-500 font-mono">Venue</span>
-            <input
-              type="text"
-              placeholder="e.g. Maarschalkerweerd"
-              value={newMatch.venue}
-              onChange={(e) => setNewMatch(prev => ({ ...prev, venue: e.target.value }))}
-              className="mt-1 w-full bg-stone-900 border border-stone-100/10 rounded-md p-2 text-sm text-stone-300"
-            />
-          </label>
-          <label className="block">
-            <span className="text-[10px] uppercase text-stone-500 font-mono">Start Time</span>
-            <input
-              type="time"
-              value={newMatch.start_time.slice(0, 5)}
-              onChange={(e) => setNewMatch(prev => ({ ...prev, start_time: e.target.value + ":00" }))}
-              className="mt-1 w-full bg-stone-900 border border-stone-100/10 rounded-md p-2 text-sm text-stone-300"
-            />
-          </label>
-          <div className="flex items-end">
-            <button
-              onClick={() => {
-                onAdd({
-                  ...newMatch,
-                  weekend_day: new Date(newMatch.match_date).getDay() === 0 ? "sunday" : "saturday",
-                });
-                setNewMatch({ ...newMatch, opposition: "", venue: "" });
-              }}
-              className="w-full bg-stone-100 text-stone-900 h-9 rounded-md text-xs font-medium hover:bg-white transition-colors"
-            >
-              Save Fixture
-            </button>
-          </div>
-        </div>
-      </div>
-
-      <div className="border border-stone-100/10 rounded-lg overflow-hidden">
-        <div className="bg-stone-100/[0.03] px-4 py-2 border-b border-stone-100/10 flex justify-between items-center">
-          <p className="text-[10px] uppercase text-stone-500 font-mono">Existing Fixtures</p>
-          <span className="text-[10px] text-stone-500 font-mono">{matches.length} Total</span>
-        </div>
-        <div className="divide-y divide-stone-100/[0.06]">
-          {matches
-            .sort((a, b) => a.match_date.localeCompare(b.match_date))
-            .map((m) => (
-              <div key={m.id} className="px-4 py-3 flex items-center justify-between hover:bg-stone-100/[0.01] transition-colors">
-                <div>
-                  <div className="flex items-center gap-2">
-                    <span className="text-xs font-mono font-bold text-kampong-red">{m.team_code}</span>
-                    <span className="text-sm font-medium">vs {m.opposition}</span>
-                  </div>
-                  <div className="flex gap-3 mt-1 text-[10px] text-stone-500">
-                    <span className="flex items-center gap-1"><Calendar size={10} /> {m.match_date} ({m.weekend_day})</span>
-                    <span className="flex items-center gap-1"><MapPin size={10} /> {m.venue ?? "No venue"}</span>
-                  </div>
-                </div>
-                <button
-                  onClick={() => onDelete(m.id)}
-                  className="p-1.5 text-stone-600 hover:text-rose-400 hover:bg-rose-400/10 rounded-md transition-all"
-                >
-                  <Trash2 size={14} />
-                </button>
-              </div>
-            ))}
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function Header({ me }: { me: Player }) {
-  return (
-    <div className="flex items-center gap-3 pb-4 mb-2 border-b border-stone-100/10">
-      <div className="w-9 h-9 rounded-full bg-kampong-red flex items-center justify-center text-white font-semibold text-sm">
-        K
-      </div>
-      <div>
-        <p className="font-semibold leading-tight">KampongSelect</p>
-        <p className="text-xs text-stone-400">Fixture Secretary — {me.full_name}</p>
-      </div>
-    </div>
-  );
-}
-
-interface StatProps {
-  label: string;
-  value: string | number;
-  icon: React.ReactNode;
-  accent?: "info" | "success" | "danger" | "stone";
-  onClick?: () => void;
-}
-function Stat({ label, value, icon, accent = "stone", onClick }: StatProps) {
-  const colors = {
-    info: "text-blue-300",
-    success: "text-emerald-300",
-    danger: "text-rose-300",
-    stone: "text-stone-300",
-  };
-  return (
-    <div
-      onClick={onClick}
-      className={`p-3 rounded-md border border-stone-100/10 bg-stone-100/[0.02] ${onClick ? "cursor-pointer hover:bg-stone-100/[0.04]" : ""}`}
-    >
-      <p className="text-[10px] uppercase tracking-wider text-stone-500 flex items-center gap-1">
-        <span className={colors[accent]}>{icon}</span>
-        {label}
-      </p>
-      <p className="text-2xl font-semibold mt-1">{value}</p>
-    </div>
-  );
-}
-
-function StatusBadge({ state }: { state: string }) {
-  const map: Record<string, { label: string; cls: string; icon: React.ReactNode }> = {
-    confirmed: { label: "Confirmed", cls: "bg-emerald-500/10 text-emerald-300", icon: <CheckCircle size={10} /> },
-    selecting: { label: "Selecting", cls: "bg-blue-500/10 text-blue-300", icon: <Circle size={10} /> },
-    open: { label: "Open", cls: "bg-stone-500/10 text-stone-400", icon: <Circle size={10} /> },
-  };
-  const v = map[state] ?? map.open;
-  return (
-    <span className={`text-[10px] px-2 py-0.5 rounded flex items-center gap-1 ${v.cls}`}>
-      {v.icon}
-      {v.label}
-    </span>
-  );
+function toRoman(num: number | null) {
+  if (!num) return "—";
+  const romans = ["", "I", "II", "III", "IV", "V"];
+  return romans[num] || num.toString();
 }
 
 interface WeekendBucket {
@@ -543,7 +325,7 @@ function groupByWeekend(matches: Match[]): WeekendBucket[] {
     byDate.set(m.match_date, arr);
   }
   const buckets = new Map<string, WeekendBucket>();
-  for (const date of byDate.keys()) {
+  for (const date of Array.from(byDate.keys())) {
     const d = new Date(date);
     const day = d.getDay();
     // Saturday is start of weekend bucket; Sunday joins the previous Saturday
