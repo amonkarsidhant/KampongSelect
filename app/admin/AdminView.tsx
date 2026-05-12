@@ -1,10 +1,11 @@
 "use client";
 
 import { useMemo, useState, useTransition } from "react";
-import { Bell, Download, AlertTriangle, Users, Calendar, CheckCircle, Circle, Plus, Trash2, MapPin } from "lucide-react";
+import { Bell, Download, AlertTriangle, Users, Calendar, CheckCircle, Circle, Plus, Trash2, MapPin, TrendingUp, CreditCard } from "lucide-react";
 import { createClient } from "@/lib/supabase";
 import RoleSwitcher from "@/components/RoleSwitcher";
 import { findConflicts } from "@/lib/cascade";
+import { nudgePlayersAction } from "@/app/actions";
 import type { Match, Player, Team, Availability, Selection, MatchStatus } from "@/lib/types";
 
 interface Props {
@@ -18,8 +19,8 @@ interface Props {
 }
 
 export default function AdminView({ me, teams, matches: initialMatches, players, availability, selections, matchStatus }: Props) {
+  const [activeTab, setActiveTab] = useState<"weekend" | "squad" | "matches">("weekend");
   const [showConflicts, setShowConflicts] = useState(false);
-  const [showMatchManager, setShowMatchManager] = useState(false);
   const [matches, setMatches] = useState<Match[]>(initialMatches);
   const [isPending, startTransition] = useTransition();
   const supabase = createClient();
@@ -28,6 +29,22 @@ export default function AdminView({ me, teams, matches: initialMatches, players,
   const weekends = useMemo(() => groupByWeekend(matches), [matches]);
   const [activeWeekend, setActiveWeekend] = useState<string>(weekends[0]?.id ?? "");
   const weekend = weekends.find((w) => w.id === activeWeekend);
+
+  // Stats for the "Squad" view
+  const playerStats = useMemo(() => {
+    return players.map(p => {
+      const gamesPlayed = selections.filter(s => {
+        const m = matches.find(m => m.id === s.match_id);
+        return s.player_id === p.id && m && new Date(m.match_date) < new Date();
+      }).length;
+
+      const responses = availability.filter(a => a.player_id === p.id).length;
+      const totalPossible = weekends.length * 2;
+      const responseRate = totalPossible > 0 ? Math.round((responses / totalPossible) * 100) : 0;
+
+      return { ...p, gamesPlayed, responseRate };
+    });
+  }, [players, selections, matches, availability, weekends]);
 
   const stats = useMemo(() => {
     if (!weekend) return null;
@@ -68,8 +85,13 @@ export default function AdminView({ me, teams, matches: initialMatches, players,
       alert("Everyone has responded already.");
       return;
     }
-    const ok = confirm(`Send a reminder to ${nonResponders.length} players who haven't responded for ${weekend?.label}?`);
-    if (ok) alert(`Reminder queued for ${nonResponders.length} players.`);
+    const ok = confirm(`Send Pulse nudges to ${nonResponders.length} players who haven't responded for ${weekend?.label}?`);
+    if (ok) {
+      startTransition(async () => {
+        const res = await nudgePlayersAction(nonResponders.map(p => p.id), weekend?.label ?? "upcoming weekend");
+        if (res.success) alert(`Pulse Engine: ${res.count} nudges sent successfully.`);
+      });
+    }
   }
 
   function exportTeamSheets() {
@@ -127,138 +149,199 @@ export default function AdminView({ me, teams, matches: initialMatches, players,
         <Header me={me} />
         <RoleSwitcher current="admin" userRole={me.user_role} />
 
-        <div className="flex justify-between items-center mt-6 mb-4">
-          <div className="flex gap-2 flex-wrap">
-            {weekends.map((w) => (
-              <button
-                key={w.id}
-                onClick={() => setActiveWeekend(w.id)}
-                className={`px-3 py-1.5 text-xs font-medium rounded-md border transition ${
-                  activeWeekend === w.id
-                    ? "border-stone-100/30 bg-stone-100/[0.08]"
-                    : "border-stone-100/10 hover:border-stone-100/20 text-stone-400"
-                }`}
-              >
-                {w.label}
-              </button>
-            ))}
-          </div>
+        {/* Tab Switcher */}
+        <div className="flex gap-4 mt-6 border-b border-stone-100/10">
           <button
-            onClick={() => setShowMatchManager(!showMatchManager)}
-            className="px-3 py-1.5 text-xs font-medium rounded-md border border-stone-100/10 hover:bg-stone-100/[0.04] flex items-center gap-1.5"
+            onClick={() => setActiveTab("weekend")}
+            className={`pb-3 text-sm font-medium transition ${
+              activeTab === "weekend" ? "text-white border-b-2 border-kampong-red" : "text-stone-500 hover:text-stone-300"
+            }`}
           >
-            <Plus size={14} /> {showMatchManager ? "Hide Manager" : "Manage Fixtures"}
+            Selection Hub
+          </button>
+          <button
+            onClick={() => setActiveTab("squad")}
+            className={`pb-3 text-sm font-medium transition ${
+              activeTab === "squad" ? "text-white border-b-2 border-kampong-red" : "text-stone-500 hover:text-stone-300"
+            }`}
+          >
+            Reliability & Squad
+          </button>
+          <button
+            onClick={() => setActiveTab("matches")}
+            className={`pb-3 text-sm font-medium transition ${
+              activeTab === "matches" ? "text-white border-b-2 border-kampong-red" : "text-stone-500 hover:text-stone-300"
+            }`}
+          >
+            Fixtures
           </button>
         </div>
 
-        {showMatchManager && (
-          <MatchManager teams={teams} onAdd={handleAddMatch} matches={matches} onDelete={handleDeleteMatch} />
-        )}
-
-        {!showMatchManager && weekend && stats && (
-          <>
-            <h2 className="text-xl font-semibold mt-6 mb-4">{weekend.label}</h2>
-
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
-              <Stat label="Squad size" value={stats.totalPlayers} icon={<Users size={12} />} />
-              <Stat
-                label="Responses"
-                value={`${stats.responded}/${stats.totalNeeded}`}
-                icon={<CheckCircle size={12} />}
-                accent="info"
-              />
-              <Stat label="Said Yes" value={stats.availYes} icon={<Calendar size={12} />} accent="success" />
-              <Stat
-                label="Conflicts"
-                value={conflicts.length}
-                icon={<AlertTriangle size={12} />}
-                accent={conflicts.length > 0 ? "danger" : "stone"}
-                onClick={() => setShowConflicts((v) => !v)}
-              />
-            </div>
-
-            {showConflicts && (
-              <div className="mb-6 p-4 rounded-lg border border-rose-500/30 bg-rose-950/15">
-                <p className="text-sm font-medium text-rose-300 mb-2">Double-bookings</p>
-                {conflicts.length === 0 ? (
-                  <p className="text-xs text-stone-300">No conflicts — every player is in at most one team per date.</p>
-                ) : (
-                  <ul className="space-y-1.5 text-xs">
-                    {conflicts.map((c, i) => (
-                      <li key={i} className="text-stone-300">
-                        <span className="font-medium text-rose-200">{playersById.get(c.playerId)?.full_name ?? "Unknown"}</span>
-                        {" "}is selected for {c.teams.join(", ")} on {c.date}.
-                      </li>
-                    ))}
-                  </ul>
-                )}
-              </div>
-            )}
-
-            <div className="mb-6">
-              <p className="text-sm font-medium mb-2">Selection cascade</p>
-              <div className="border border-stone-100/10 rounded-lg overflow-hidden">
-                {teamProgress.map((tp, i) => (
-                  <div
-                    key={tp.match.id}
-                    className={`grid grid-cols-12 gap-3 items-center px-4 py-3 text-sm ${
-                      i > 0 ? "border-t border-stone-100/[0.06]" : ""
+        {activeTab === "weekend" && (
+          <div className="animate-in fade-in slide-in-from-bottom-2 duration-300">
+            <div className="flex justify-between items-center mt-6 mb-4">
+              <div className="flex gap-2 flex-wrap">
+                {weekends.map((w) => (
+                  <button
+                    key={w.id}
+                    onClick={() => setActiveWeekend(w.id)}
+                    className={`px-3 py-1.5 text-xs font-medium rounded-md border transition ${
+                      activeWeekend === w.id
+                        ? "border-stone-100/30 bg-stone-100/[0.08]"
+                        : "border-stone-100/10 hover:border-stone-100/20 text-stone-400"
                     }`}
                   >
-                    <div className="col-span-2 font-medium">{tp.match.team_code}</div>
-                    <div className="col-span-5 flex items-center gap-2">
-                      <div className="flex-1 h-1.5 bg-stone-100/[0.06] rounded-full overflow-hidden">
-                        <div
-                          className={`h-full transition-all ${
-                            tp.status === "confirmed"
-                              ? "bg-emerald-500"
-                              : tp.picked > 0
-                              ? "bg-blue-500"
-                              : "bg-stone-600"
-                          }`}
-                          style={{ width: `${(tp.picked / 11) * 100}%` }}
-                        />
-                      </div>
-                      <span className="text-[11px] font-mono text-stone-400 min-w-[36px]">{tp.picked}/11</span>
-                    </div>
-                    <div className="col-span-2 text-xs text-stone-400">
-                      {tp.team?.tier_order ? `Tier ${tp.team.tier_order}` : "Rec"}
-                    </div>
-                    <div className="col-span-2 text-xs text-stone-400">
-                      {new Date(tp.match.match_date).toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short" })}
-                    </div>
-                    <div className="col-span-1 flex justify-end">
-                      <StatusBadge state={tp.status} />
-                    </div>
-                  </div>
+                    {w.label}
+                  </button>
                 ))}
               </div>
             </div>
 
-            <div className="flex flex-wrap gap-2">
-              <button
-                onClick={nudgeNonResponders}
-                className="px-3 py-2 text-xs font-medium rounded-md border border-stone-100/15 hover:bg-stone-100/[0.04] flex items-center gap-1.5"
-              >
-                <Bell size={12} /> Nudge {nonResponders.length} non-responder{nonResponders.length === 1 ? "" : "s"}
-              </button>
-              <button
-                onClick={exportTeamSheets}
-                className="px-3 py-2 text-xs font-medium rounded-md border border-stone-100/15 hover:bg-stone-100/[0.04] flex items-center gap-1.5"
-              >
-                <Download size={12} /> Export team sheets
-              </button>
-              <button
-                onClick={() => setShowConflicts((v) => !v)}
-                className="px-3 py-2 text-xs font-medium rounded-md border border-stone-100/15 hover:bg-stone-100/[0.04] flex items-center gap-1.5"
-              >
-                <AlertTriangle size={12} /> {showConflicts ? "Hide" : "Check"} conflicts
-              </button>
-            </div>
-          </>
+            {weekend && stats && (
+              <>
+                <h2 className="text-xl font-semibold mt-6 mb-4">{weekend.label}</h2>
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
+                  <Stat label="Squad size" value={stats.totalPlayers} icon={<Users size={12} />} />
+                  <Stat
+                    label="Responses"
+                    value={`${stats.responded}/${stats.totalNeeded}`}
+                    icon={<CheckCircle size={12} />}
+                    accent="info"
+                  />
+                  <Stat label="Said Yes" value={stats.availYes} icon={<Calendar size={12} />} accent="success" />
+                  <Stat
+                    label="Conflicts"
+                    value={conflicts.length}
+                    icon={<AlertTriangle size={12} />}
+                    accent={conflicts.length > 0 ? "danger" : "stone"}
+                    onClick={() => setShowConflicts((v) => !v)}
+                  />
+                </div>
+
+                {showConflicts && (
+                  <div className="mb-6 p-4 rounded-lg border border-rose-500/30 bg-rose-950/15">
+                    <p className="text-sm font-medium text-rose-300 mb-2">Double-bookings</p>
+                    {conflicts.length === 0 ? (
+                      <p className="text-xs text-stone-300">No conflicts — every player is in at most one team per date.</p>
+                    ) : (
+                      <ul className="space-y-1.5 text-xs">
+                        {conflicts.map((c, i) => (
+                          <li key={i} className="text-stone-300">
+                            <span className="font-medium text-rose-200">{playersById.get(c.playerId)?.full_name ?? "Unknown"}</span>
+                            {" "}is selected for {c.teams.join(", ")} on {c.date}.
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </div>
+                )}
+
+                <div className="mb-6">
+                  <p className="text-sm font-medium mb-2">Selection cascade</p>
+                  <div className="border border-stone-100/10 rounded-lg overflow-hidden">
+                    {teamProgress.map((tp, i) => (
+                      <div
+                        key={tp.match.id}
+                        className={`grid grid-cols-12 gap-3 items-center px-4 py-3 text-sm ${
+                          i > 0 ? "border-t border-stone-100/[0.06]" : ""
+                        }`}
+                      >
+                        <div className="col-span-2 font-medium">{tp.match.team_code}</div>
+                        <div className="col-span-5 flex items-center gap-2">
+                          <div className="flex-1 h-1.5 bg-stone-100/[0.06] rounded-full overflow-hidden">
+                            <div
+                              className={`h-full transition-all ${
+                                tp.status === "confirmed"
+                                  ? "bg-emerald-500"
+                                  : tp.picked > 0
+                                  ? "bg-blue-500"
+                                  : "bg-stone-600"
+                              }`}
+                              style={{ width: `${(tp.picked / 11) * 100}%` }}
+                            />
+                          </div>
+                          <span className="text-[11px] font-mono text-stone-400 min-w-[36px]">{tp.picked}/11</span>
+                        </div>
+                        <div className="col-span-2 text-xs text-stone-400">
+                          {tp.team?.tier_order ? `Tier ${tp.team.tier_order}` : "Rec"}
+                        </div>
+                        <div className="col-span-2 text-xs text-stone-400">
+                          {new Date(tp.match.match_date).toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short" })}
+                        </div>
+                        <div className="col-span-1 flex justify-end">
+                          <StatusBadge state={tp.status} />
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="flex flex-wrap gap-2">
+                  <button
+                    disabled={isPending}
+                    onClick={nudgeNonResponders}
+                    className="px-3 py-2 text-xs font-medium rounded-md border border-stone-100/15 hover:bg-stone-100/[0.04] flex items-center gap-1.5 transition disabled:opacity-50"
+                  >
+                    <Bell size={12} className="text-amber-400" /> Nudge {nonResponders.length} non-responder{nonResponders.length === 1 ? "" : "s"}
+                  </button>
+                  <button
+                    onClick={exportTeamSheets}
+                    className="px-3 py-2 text-xs font-medium rounded-md border border-stone-100/15 hover:bg-stone-100/[0.04] flex items-center gap-1.5"
+                  >
+                    <Download size={12} /> Export team sheets
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
         )}
 
-        {weekends.length === 0 && !showMatchManager && (
+        {activeTab === "squad" && (
+          <div className="mt-6 animate-in fade-in slide-in-from-bottom-2 duration-300">
+            <h2 className="text-xl font-semibold mb-6 flex items-center gap-2">
+              <TrendingUp size={20} className="text-kampong-red" />
+              Squad Performance & Reliability
+            </h2>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              {playerStats.sort((a, b) => b.gamesPlayed - a.gamesPlayed).map(p => (
+                <div key={p.id} className="p-4 rounded-xl border border-stone-100/10 bg-stone-100/[0.02] group hover:border-stone-100/20 transition-all shadow-sm">
+                  <div className="flex justify-between items-start mb-3">
+                    <div>
+                      <p className="text-sm font-medium">{p.full_name}</p>
+                      <p className="text-[10px] text-stone-500 uppercase font-mono">{p.role} · Tier {p.tier ?? "—"}</p>
+                    </div>
+                    <div className="flex flex-col items-end gap-1">
+                      <div className={`text-[10px] px-2 py-0.5 rounded font-bold ${p.active ? "bg-emerald-500/10 text-emerald-400" : "bg-rose-500/10 text-rose-400"}`}>
+                        {p.active ? "ACTIVE" : "INACTIVE"}
+                      </div>
+                      <div className="text-[9px] flex items-center gap-1 text-emerald-500/80">
+                        <CreditCard size={8} /> PAID
+                      </div>
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-4 mt-4">
+                    <div className="p-2 rounded bg-stone-100/[0.03] border border-stone-100/5 group-hover:bg-stone-100/[0.06] transition-colors">
+                      <p className="text-[9px] text-stone-500 uppercase">Games Played</p>
+                      <p className="text-lg font-bold">{p.gamesPlayed}</p>
+                    </div>
+                    <div className="p-2 rounded bg-stone-100/[0.03] border border-stone-100/5 group-hover:bg-stone-100/[0.06] transition-colors">
+                      <p className="text-[9px] text-stone-500 uppercase">Response Rate</p>
+                      <p className="text-lg font-bold">{p.responseRate}%</p>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {activeTab === "matches" && (
+          <div className="animate-in fade-in slide-in-from-bottom-2 duration-300">
+            <MatchManager teams={teams} onAdd={handleAddMatch} matches={matches} onDelete={handleDeleteMatch} />
+          </div>
+        )}
+
+        {weekends.length === 0 && activeTab === "weekend" && (
           <p className="mt-6 text-sm text-stone-400">No upcoming matches in the next 14 days.</p>
         )}
       </div>

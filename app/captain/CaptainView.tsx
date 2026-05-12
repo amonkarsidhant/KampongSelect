@@ -5,6 +5,7 @@ import { Check, Users, MapPin, Clock, ArrowDown, AlertCircle, ChevronRight, Shie
 import { createClient } from "@/lib/supabase";
 import RoleSwitcher from "@/components/RoleSwitcher";
 import { poolForMatch } from "@/lib/cascade";
+import { notifySelectionAction } from "@/app/actions";
 import type { Match, Player, Team, Availability, Selection, AvailStatus } from "@/lib/types";
 
 interface Props {
@@ -163,10 +164,17 @@ export default function CaptainView({
 
   async function confirmXI() {
     if (!match || xiCount !== 11) return;
-    await supabase
-      .from("match_status")
-      .upsert({ match_id: match.id, state: "confirmed", confirmed_at: new Date().toISOString(), confirmed_by: me.id });
-    alert(`XI confirmed for ${match.team_code} vs ${match.opposition}.`);
+    startTransition(async () => {
+      const { error } = await supabase
+        .from("match_status")
+        .upsert({ match_id: match.id, state: "confirmed", confirmed_at: new Date().toISOString(), confirmed_by: me.id });
+      
+      if (!error) {
+        // Trigger The Pulse: Notify selected players
+        await notifySelectionAction(match.id);
+        alert(`XI confirmed for ${match.team_code} vs ${match.opposition}. The Pulse is notifying your players.`);
+      }
+    });
   }
 
   // Tabs the captain can switch between (admins see all, captains see only their team)
