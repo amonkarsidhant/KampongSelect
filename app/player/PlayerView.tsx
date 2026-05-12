@@ -147,119 +147,121 @@ export default function PlayerView({ player, sat, sun, matches, initialAvailabil
           <h2 className="font-display text-xl mb-4">Availability</h2>
         </div>
 
-        {/* Swipeable container */}
-        <div className="flex overflow-x-auto snap-x snap-mandatory px-6 gap-4 pb-8 hide-scrollbar">
-          {[
-            { label: "Saturday", date: sat },
-            { label: "Sunday", date: sun },
-          ].map((day) => {
-            const dayStatus = avail[day.date].status;
-            const dayNote = avail[day.date].note;
-            const dayMatches = matches.filter((m) => m.match_date === day.date);
+        {/* Responsive container: Grid on desktop, swipeable on mobile */}
+        <div className="px-6 pb-20">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            {[
+              { label: "Saturday", date: sat },
+              { label: "Sunday", date: sun },
+            ].map((day) => {
+              const dayStatus = avail[day.date].status;
+              const dayNote = avail[day.date].note;
+              const dayMatches = matches.filter((m) => m.match_date === day.date);
 
-            return (
-              <div
-                key={day.date}
-                className={cn(
-                  "min-w-[85vw] sm:min-w-[320px] snap-center rounded-3xl p-5 border relative overflow-hidden transition-colors duration-500",
-                  dayStatus === "no" ? "bg-surface/30 border-border opacity-60" : "bg-surface border-border"
-                )}
-              >
-                {dayStatus === "no" && (
-                  <div className="absolute inset-0 pointer-events-none flex items-center justify-center rotate-[-15deg] opacity-10">
-                    <span className="font-display text-6xl font-bold tracking-widest uppercase border-4 border-current p-2 rounded-lg text-white">
-                      Unavailable
-                    </span>
-                  </div>
-                )}
-                
-                <div className="relative z-10">
-                  <div className="flex justify-between items-baseline mb-6">
-                    <h3 className="font-display text-2xl">{day.label}</h3>
-                    <p className="font-mono text-sm text-foreground-muted">
-                      {new Date(day.date).toLocaleDateString("en-GB", { day: "numeric", month: "short" })}
-                    </p>
-                  </div>
+              return (
+                <div
+                  key={day.date}
+                  className={cn(
+                    "rounded-3xl p-6 border relative overflow-hidden transition-all duration-500 shadow-xl",
+                    dayStatus === "no" ? "bg-surface/30 border-border opacity-60" : "bg-surface border-border"
+                  )}
+                >
+                  {dayStatus === "no" && (
+                    <div className="absolute inset-0 pointer-events-none flex items-center justify-center rotate-[-15deg] opacity-10">
+                      <span className="font-display text-6xl font-bold tracking-widest uppercase border-4 border-current p-2 rounded-lg text-white">
+                        Unavailable
+                      </span>
+                    </div>
+                  )}
+                  
+                  <div className="relative z-10">
+                    <div className="flex justify-between items-baseline mb-8">
+                      <h3 className="font-display text-3xl">{day.label}</h3>
+                      <p className="font-mono text-sm text-foreground-muted">
+                        {new Date(day.date).toLocaleDateString("en-GB", { day: "numeric", month: "short" })}
+                      </p>
+                    </div>
 
-                  <div className="flex gap-4 mb-6">
-                    <motion.button
-                      whileTap={{ scale: 0.95 }}
-                      onClick={() => updateAvailability(day.date, { status: "yes" })}
-                      className={cn(
-                        "relative flex-1 h-[52px] rounded-xl font-bold text-sm overflow-hidden flex items-center justify-center transition-all",
-                        dayStatus === "yes"
-                          ? "bg-success text-white shadow-[0_0_20px_rgba(16,185,129,0.3)]"
-                          : "bg-background border border-border text-foreground hover:bg-white/5"
-                      )}
-                    >
-                      <AnimatePresence>
-                        {dayStatus === "yes" && (
-                          <motion.div
-                            initial={{ x: -20, opacity: 0 }}
-                            animate={{ x: 0, opacity: 1 }}
-                            exit={{ x: 20, opacity: 0 }}
-                            className="absolute left-4"
-                          >
-                            <CricketBall className="w-5 h-5 text-white" />
-                          </motion.div>
+                    <div className="flex gap-4 mb-8">
+                      <motion.button
+                        whileTap={{ scale: 0.95 }}
+                        onClick={() => updateAvailability(day.date, { status: "yes" })}
+                        className={cn(
+                          "relative flex-1 h-[56px] rounded-2xl font-bold text-base overflow-hidden flex items-center justify-center transition-all",
+                          dayStatus === "yes"
+                            ? "bg-success text-white shadow-[0_0_25px_rgba(16,185,129,0.3)]"
+                            : "bg-background border border-border text-foreground hover:bg-white/5"
                         )}
-                      </AnimatePresence>
-                      <span className={dayStatus === "yes" ? "ml-6" : ""}>Yes, available</span>
-                    </motion.button>
+                      >
+                        <AnimatePresence>
+                          {dayStatus === "yes" && (
+                            <motion.div
+                              initial={{ x: -20, opacity: 0 }}
+                              animate={{ x: 0, opacity: 1 }}
+                              exit={{ x: 20, opacity: 0 }}
+                              className="absolute left-4"
+                            >
+                              <CricketBall className="w-6 h-6 text-white" />
+                            </motion.div>
+                          )}
+                        </AnimatePresence>
+                        <span className={dayStatus === "yes" ? "ml-6" : ""}>Yes</span>
+                      </motion.button>
 
-                    <motion.button
-                      whileTap={{ scale: 0.95 }}
-                      onClick={() => updateAvailability(day.date, { status: "no" })}
-                      className={cn(
-                        "flex-1 h-[52px] rounded-xl font-bold text-sm flex items-center justify-center transition-all",
-                        dayStatus === "no"
-                          ? "bg-danger text-white shadow-[0_0_20px_rgba(239,68,68,0.3)]"
-                          : "bg-background border border-border text-foreground hover:bg-white/5"
-                      )}
-                    >
-                      No
-                    </motion.button>
-                  </div>
+                      <motion.button
+                        whileTap={{ scale: 0.95 }}
+                        onClick={() => updateAvailability(day.date, { status: "no" })}
+                        className={cn(
+                          "flex-1 h-[56px] rounded-2xl font-bold text-base flex items-center justify-center transition-all",
+                          dayStatus === "no"
+                            ? "bg-danger text-white shadow-[0_0_25px_rgba(239,68,68,0.3)]"
+                            : "bg-background border border-border text-foreground hover:bg-white/5"
+                        )}
+                      >
+                        No
+                      </motion.button>
+                    </div>
 
-                  {dayStatus !== "no" && (
-                    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="mb-6">
+                    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="mb-8">
+                      <label className="text-[10px] font-mono text-foreground-muted uppercase mb-2 block">Optional Note</label>
                       <textarea
-                        placeholder="Add a note (e.g. need a lift, playing half day)"
+                        placeholder="e.g. need a lift, playing half day"
                         value={dayNote}
                         onChange={(e) => updateAvailability(day.date, { note: e.target.value })}
-                        className="w-full h-12 bg-background border border-border rounded-xl p-3 text-sm text-foreground focus:outline-none focus:border-crimson resize-none transition-colors"
+                        className="w-full h-16 bg-background border border-border rounded-2xl p-4 text-sm text-foreground focus:outline-none focus:border-crimson resize-none transition-colors shadow-inner"
                       />
                     </motion.div>
-                  )}
 
-                  <div className="mt-4 pt-4 border-t border-border">
-                    <p className="text-[10px] font-mono text-foreground-muted uppercase mb-3">Fixtures</p>
-                    {dayMatches.length === 0 ? (
-                      <p className="text-sm text-foreground-muted italic">No fixtures scheduled.</p>
-                    ) : (
-                      <div className="flex flex-wrap gap-2">
-                        {dayMatches.map((m) => {
-                          const isH = m.team_code.startsWith("H");
-                          const isZami = m.team_code.startsWith("Zam");
-                          return (
-                            <span
-                              key={m.id}
-                              className={cn(
-                                "text-[10px] px-2 py-1 rounded-md font-bold",
-                                isH ? "bg-crimson/20 text-crimson-300" : isZami ? "bg-warning-muted text-warning" : "bg-white/10 text-white"
-                              )}
-                            >
-                              {m.team_code}
-                            </span>
-                          );
-                        })}
-                      </div>
-                    )}
+                    <div className="mt-6 pt-6 border-t border-border/50">
+                      <p className="text-[10px] font-mono text-foreground-muted uppercase mb-4 tracking-widest">Fixtures</p>
+                      {dayMatches.length === 0 ? (
+                        <p className="text-sm text-foreground-muted italic">No fixtures scheduled.</p>
+                      ) : (
+                        <div className="flex flex-wrap gap-2.5">
+                          {dayMatches.map((m) => {
+                            const isH = m.team_code.startsWith("H");
+                            const isZami = m.team_code.startsWith("Zam");
+                            return (
+                              <div
+                                key={m.id}
+                                className={cn(
+                                  "flex items-center gap-2 px-3 py-1.5 rounded-lg border",
+                                  isH ? "bg-crimson/10 border-crimson/20 text-crimson-300" : isZami ? "bg-warning-muted border-warning/20 text-warning" : "bg-white/5 border-border text-white"
+                                )}
+                              >
+                                <span className="text-[10px] font-bold uppercase">{m.team_code}</span>
+                                <span className="text-[10px] opacity-60">vs {m.opposition}</span>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
                   </div>
                 </div>
-              </div>
-            );
-          })}
+              );
+            })}
+          </div>
         </div>
       </div>
     </main>

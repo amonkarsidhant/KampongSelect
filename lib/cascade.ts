@@ -40,6 +40,7 @@ export interface CaptainPoolInput {
 export interface PoolPlayer {
   player: Player;
   status: "available" | "taken_by_higher" | "already_picked";
+  response: AvailStatus | null; // The player's actual response (yes/no/null)
   takenBy?: string; // team code that took them, when status != available
 }
 
@@ -85,17 +86,20 @@ export function poolForMatch(input: CaptainPoolInput): PoolPlayer[] {
   }
 
   const result: PoolPlayer[] = [];
-  for (const [playerId, status] of availability) {
-    if (status !== "yes") continue;
-    const player = playersById.get(playerId);
-    if (!player || !player.active) continue;
+  // Include ALL active players in the pool, regardless of response.
+  // This allows captains to pick players who forgot to set availability.
+  for (const player of Array.from(playersById.values())) {
+    if (!player.active) continue;
+    
+    const playerId = player.id;
+    const response = availability.get(playerId) || null;
 
     if (pickedHere.has(playerId)) {
-      result.push({ player, status: "already_picked" });
+      result.push({ player, status: "already_picked", response });
     } else if (takenByHigher.has(playerId)) {
-      result.push({ player, status: "taken_by_higher", takenBy: takenByHigher.get(playerId) });
+      result.push({ player, status: "taken_by_higher", response, takenBy: takenByHigher.get(playerId) });
     } else {
-      result.push({ player, status: "available" });
+      result.push({ player, status: "available", response });
     }
   }
 
@@ -103,6 +107,11 @@ export function poolForMatch(input: CaptainPoolInput): PoolPlayer[] {
   return result.sort((a, b) => {
     const order = { available: 0, already_picked: 1, taken_by_higher: 2 };
     if (order[a.status] !== order[b.status]) return order[a.status] - order[b.status];
+    
+    // Within groups, prioritize those who actually said YES
+    if (a.response === "yes" && b.response !== "yes") return -1;
+    if (b.response === "yes" && a.response !== "yes") return 1;
+
     const ta = a.player.tier ?? 99;
     const tb = b.player.tier ?? 99;
     if (ta !== tb) return ta - tb;

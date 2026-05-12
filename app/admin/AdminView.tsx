@@ -5,7 +5,7 @@ import { Bell, Download, AlertTriangle, Users, Calendar, CheckCircle, Circle, Pl
 import { createClient } from "@/lib/supabase";
 import RoleSwitcher from "@/components/RoleSwitcher";
 import { findConflicts } from "@/lib/cascade";
-import { nudgePlayersAction } from "@/app/actions";
+import { nudgePlayersAction, updatePlayerAvailabilityAction } from "@/app/actions";
 import { motion, AnimatePresence } from "framer-motion";
 import { cn } from "@/lib/utils";
 import type { Match, Player, Team, Availability, Selection, MatchStatus } from "@/lib/types";
@@ -85,6 +85,13 @@ export default function AdminView({ me, teams, matches: initialMatches, players,
         if (res.success) alert(`Pulse Engine: ${res.count} nudges sent.`);
       });
     }
+  }
+
+  async function toggleAvailability(playerId: string, date: string, current: string | null) {
+    const next: "yes" | "no" | null = current === "yes" ? "no" : current === "no" ? null : "yes";
+    startTransition(async () => {
+      await updatePlayerAvailabilityAction(playerId, date, next);
+    });
   }
 
   // Waterfall visualization calculation
@@ -248,30 +255,48 @@ export default function AdminView({ me, teams, matches: initialMatches, players,
 
           {activeTab === "squad" && (
             <motion.div key="squad" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="mt-8">
+              <div className="mb-6 p-4 rounded-xl border border-warning/20 bg-warning/5 text-xs text-warning/80">
+                Tip: Click the reliability score to manually override availability for the active weekend ({weekend?.label}).
+              </div>
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                {playerStats.sort((a, b) => b.gamesPlayed - a.gamesPlayed).map(p => (
-                  <div key={p.id} className="p-5 rounded-2xl bg-surface border border-border shadow-sm">
-                    <div className="flex justify-between items-start mb-4">
-                      <div>
-                        <h3 className="font-display text-lg font-bold">{p.full_name}</h3>
-                        <p className="font-mono text-[10px] uppercase text-foreground-muted mt-1">{p.role} · Tier {toRoman(p.tier)}</p>
+                {playerStats.sort((a, b) => b.gamesPlayed - a.gamesPlayed).map(p => {
+                  const satAvail = availability.find(a => a.player_id === p.id && a.match_date === weekend?.dates[0])?.status ?? null;
+                  const sunAvail = availability.find(a => a.player_id === p.id && a.match_date === weekend?.dates[1])?.status ?? null;
+                  
+                  return (
+                    <div key={p.id} className="p-5 rounded-2xl bg-surface border border-border shadow-sm group transition-all">
+                      <div className="flex justify-between items-start mb-4">
+                        <div>
+                          <h3 className="font-display text-lg font-bold">{p.full_name}</h3>
+                          <p className="font-mono text-[10px] uppercase text-foreground-muted mt-1">{p.role} · Tier {toRoman(p.tier)}</p>
+                        </div>
+                        {p.active ? <CheckCircle size={16} className="text-success" /> : <Circle size={16} className="text-border" />}
                       </div>
-                      {p.active ? <CheckCircle size={16} className="text-success" /> : <Circle size={16} className="text-border" />}
+                      <div className="grid grid-cols-2 gap-2">
+                        <div className="bg-background rounded-lg p-3">
+                          <p className="font-mono text-[9px] uppercase text-foreground-muted">Caps</p>
+                          <p className="font-display text-2xl font-bold">{p.gamesPlayed}</p>
+                        </div>
+                        <div 
+                          className="bg-background rounded-lg p-3 group relative cursor-pointer overflow-hidden active:scale-95 transition-transform" 
+                          onClick={() => weekend && toggleAvailability(p.id, weekend.dates[0], satAvail)}
+                        >
+                          <p className="font-mono text-[9px] uppercase text-foreground-muted flex justify-between">
+                            <span>Reliability</span>
+                            <span className="text-[8px] opacity-0 group-hover:opacity-100 transition-opacity">OVERRIDE</span>
+                          </p>
+                          <p className={cn("font-display text-2xl font-bold transition-colors", p.responseRate < 50 ? "text-danger" : p.responseRate > 80 ? "text-success" : "")}>
+                            {p.responseRate}%
+                          </p>
+                          <div className="absolute inset-x-0 bottom-0 h-1 flex">
+                             <div className={cn("flex-1", satAvail === "yes" ? "bg-success" : satAvail === "no" ? "bg-danger" : "bg-transparent")} />
+                             <div className={cn("flex-1", sunAvail === "yes" ? "bg-success" : sunAvail === "no" ? "bg-danger" : "bg-transparent")} />
+                          </div>
+                        </div>
+                      </div>
                     </div>
-                    <div className="grid grid-cols-2 gap-2">
-                      <div className="bg-background rounded-lg p-3">
-                        <p className="font-mono text-[9px] uppercase text-foreground-muted">Caps</p>
-                        <p className="font-display text-2xl font-bold">{p.gamesPlayed}</p>
-                      </div>
-                      <div className="bg-background rounded-lg p-3">
-                        <p className="font-mono text-[9px] uppercase text-foreground-muted">Reliability</p>
-                        <p className={cn("font-display text-2xl font-bold", p.responseRate < 50 ? "text-danger" : p.responseRate > 80 ? "text-success" : "")}>
-                          {p.responseRate}%
-                        </p>
-                      </div>
-                    </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             </motion.div>
           )}
@@ -317,7 +342,6 @@ interface WeekendBucket {
 }
 
 function groupByWeekend(matches: Match[]): WeekendBucket[] {
-  // Group consecutive Sat+Sun pairs
   const byDate = new Map<string, Match[]>();
   for (const m of matches) {
     const arr = byDate.get(m.match_date) ?? [];
@@ -328,9 +352,8 @@ function groupByWeekend(matches: Match[]): WeekendBucket[] {
   for (const date of Array.from(byDate.keys())) {
     const d = new Date(date);
     const day = d.getDay();
-    // Saturday is start of weekend bucket; Sunday joins the previous Saturday
     const sat = new Date(d);
-    if (day === 0) sat.setDate(d.getDate() - 1); // Sunday → use Saturday's date
+    if (day === 0) sat.setDate(d.getDate() - 1);
     if (day === 6) sat.setDate(d.getDate());
     const id = sat.toISOString().slice(0, 10);
     const sun = new Date(sat);

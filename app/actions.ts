@@ -90,3 +90,26 @@ export async function notifySelectionAction(matchId: string) {
 
   return { success: true, count: results.filter(r => r.success).length };
 }
+
+export async function updatePlayerAvailabilityAction(playerId: string, matchDate: string, status: "yes" | "no" | null) {
+  const supabase = createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) throw new Error("Unauthorized");
+
+  // Check if current user is admin
+  const { data: admin } = await supabase.from("players").select("user_role").eq("auth_user_id", user.id).single();
+  if (admin?.user_role !== "admin") throw new Error("Only admins can override availability");
+
+  if (status === null) {
+    await supabase.from("availability").delete().eq("player_id", playerId).eq("match_date", matchDate);
+  } else {
+    await supabase.from("availability").upsert({
+      player_id: playerId,
+      match_date: matchDate,
+      status: status,
+      updated_at: new Date().toISOString()
+    }, { onConflict: "player_id,match_date" });
+  }
+
+  return { success: true };
+}

@@ -39,6 +39,7 @@ function toRoman(num: number | null) {
 function PlayerRow({
   player,
   status,
+  response,
   takenBy,
   note,
   picked,
@@ -51,6 +52,7 @@ function PlayerRow({
 }: {
   player: Player;
   status: string;
+  response: AvailStatus | null;
   takenBy?: string;
   note: string;
   picked: boolean;
@@ -155,10 +157,10 @@ function PlayerRow({
       <div className="col-span-1 flex justify-end">
         <div className={cn(
           "size-2.5 rounded-full shadow-[0_0_8px_currentColor]",
-          status === "available" ? "text-success bg-success" : 
-          status === "already_picked" ? "text-success bg-success" : 
-          "text-danger bg-danger"
-        )} />
+          response === "yes" ? "text-success bg-success" : 
+          response === "no" ? "text-danger bg-danger" : 
+          "text-stone-600 bg-stone-600"
+        )} title={response ? `Responded: ${response.toUpperCase()}` : "No response yet"} />
       </div>
     </motion.div>
   );
@@ -387,13 +389,14 @@ export default function CaptainView({
               {pool.length === 0 ? (
                 <div className="p-12 text-center text-foreground-muted">No availability for this date.</div>
               ) : (
-                pool.map(({ player, status, takenBy, note }) => {
+                pool.map(({ player, status, response, takenBy, note }) => {
                   const sel = selections.find(s => s.match_id === matchId && s.player_id === player.id);
                   return (
                     <PlayerRow
                       key={player.id}
                       player={player}
                       status={status}
+                      response={response}
                       takenBy={takenBy}
                       note={note}
                       picked={!!sel}
