@@ -1,4 +1,7 @@
 
+-- Add is_excused to availability
+alter table availability add column if not exists is_excused boolean not null default false;
+
 -- Add reliability and payment tracking to players
 alter table players add column if not exists membership_paid boolean not null default false;
 alter table players add column if not exists reliability_score integer default 100;

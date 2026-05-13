@@ -34,8 +34,13 @@ create table players (
   user_role       user_role not null default 'player',
   captains_team   text references teams(code),              -- if user_role = 'captain'
   active          boolean not null default true,
+  membership_paid boolean not null default false,
+  reliability_score integer default 100,
+  stats_meta      jsonb default '{}'::jsonb,
   created_at      timestamptz not null default now()
 );
+comment on column players.membership_paid is 'Manual flag set by treasurer';
+comment on column players.reliability_score is 'System calculated 0-100 based on dropouts and response speed';
 create index players_auth_idx on players(auth_user_id);
 create index players_email_idx on players(email);
 
@@ -64,6 +69,7 @@ create table availability (
   match_date     date not null,                             -- the Sat or Sun in question
   status         avail_status not null,
   note           text,
+  is_excused     boolean not null default false,
   updated_at     timestamptz not null default now(),
   unique (player_id, match_date)
 );

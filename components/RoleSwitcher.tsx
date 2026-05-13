@@ -18,14 +18,34 @@ interface Props {
  */
 export default function RoleSwitcher({ current, userRole }: Props) {
   const router = useRouter();
-  const tabs: { key: "player" | "captain" | "admin"; label: string; icon: React.ReactNode; href: string }[] = [
-    { key: "player", label: "Player", icon: <User size={13} />, href: "/player" },
+  const tabs: {
+    key: "player" | "captain" | "admin";
+    label: string;
+    icon: React.ReactNode;
+    href: string;
+  }[] = [
+    {
+      key: "player",
+      label: "Player",
+      icon: <User size={13} />,
+      href: "/player",
+    },
   ];
   if (userRole === "captain" || userRole === "admin") {
-    tabs.push({ key: "captain", label: "Captain", icon: <Clipboard size={13} />, href: "/captain" });
+    tabs.push({
+      key: "captain",
+      label: "Captain",
+      icon: <Clipboard size={13} />,
+      href: "/captain",
+    });
   }
   if (userRole === "admin") {
-    tabs.push({ key: "admin", label: "Admin", icon: <Settings size={13} />, href: "/admin" });
+    tabs.push({
+      key: "admin",
+      label: "Admin",
+      icon: <Settings size={13} />,
+      href: "/admin",
+    });
   }
 
   async function signOut() {

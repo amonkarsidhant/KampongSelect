@@ -1,12 +1,19 @@
 "use client";
 
 import { useState, useTransition, useMemo, useRef, useEffect } from "react";
-import { Check, X, MapPin, Clock, Calendar, Search } from "lucide-react";
+import { MapPin } from "lucide-react";
 import { createClient } from "@/lib/supabase";
 import RoleSwitcher from "@/components/RoleSwitcher";
 import { CricketBall } from "@/components/ui/CricketBall";
 import { motion, AnimatePresence } from "framer-motion";
-import type { Match, Player, Availability, AvailStatus, Selection, MatchStatus } from "@/lib/types";
+import type {
+  Match,
+  Player,
+  Availability,
+  AvailStatus,
+  Selection,
+  MatchStatus,
+} from "@/lib/types";
 import { cn } from "@/lib/utils";
 
 interface Props {
@@ -19,43 +26,68 @@ interface Props {
   matchStatus: MatchStatus[];
 }
 
-export default function PlayerView({ player, matches, initialAvailability, selections, matchStatus }: Props) {
+export default function PlayerView({
+  player,
+  matches,
+  initialAvailability,
+  selections,
+  matchStatus,
+}: Props) {
   const [activeTab, setActiveTab] = useState<"planner" | "fixtures">("planner");
   const [mounted, setMounted] = useState(false);
-  
+  const [saveStates, setSaveStates] = useState<
+    Record<string, "saving" | "saved" | "error">
+  >({});
+
   useEffect(() => {
     setMounted(true);
   }, []);
 
-  const [avail, setAvail] = useState<Record<string, { status: AvailStatus | null; note: string }>>(() => {
-    const map: Record<string, { status: AvailStatus | null; note: string }> = {};
+  const [avail, setAvail] = useState<
+    Record<string, { status: AvailStatus | null; note: string }>
+  >(() => {
+    const map: Record<string, { status: AvailStatus | null; note: string }> =
+      {};
     for (const a of initialAvailability) {
       map[a.match_date] = { status: a.status, note: a.note ?? "" };
     }
     return map;
   });
-  const [isPending, startTransition] = useTransition();
+  const [, startTransition] = useTransition();
   const supabase = createClient();
-  const debounceTimer = useRef<Record<string, NodeJS.Timeout>>( {});
+  const debounceTimer = useRef<Record<string, NodeJS.Timeout>>({});
 
   const weekends = useMemo(() => groupByWeekend(matches), [matches]);
 
-  function updateAvailability(date: string, updates: Partial<{ status: AvailStatus; note: string }>) {
-    if (typeof navigator !== "undefined" && navigator.vibrate && updates.status) {
+  function updateAvailability(
+    date: string,
+    updates: Partial<{ status: AvailStatus; note: string }>,
+  ) {
+    if (
+      typeof navigator !== "undefined" &&
+      navigator.vibrate &&
+      updates.status
+    ) {
       navigator.vibrate(12);
     }
 
     const current = avail[date] || { status: null, note: "" };
-    const nextStatus = updates.status !== undefined ? updates.status : current.status;
+    const nextStatus =
+      updates.status !== undefined ? updates.status : current.status;
     const nextNote = updates.note !== undefined ? updates.note : current.note;
 
-    setAvail((prev) => ({ ...prev, [date]: { status: nextStatus, note: nextNote } }));
+    setAvail((prev) => ({
+      ...prev,
+      [date]: { status: nextStatus, note: nextNote },
+    }));
 
     if (nextStatus) {
-      if (debounceTimer.current[date]) clearTimeout(debounceTimer.current[date]);
+      setSaveStates((prev) => ({ ...prev, [date]: "saving" }));
+      if (debounceTimer.current[date])
+        clearTimeout(debounceTimer.current[date]);
       debounceTimer.current[date] = setTimeout(() => {
         startTransition(async () => {
-          await supabase.from("availability").upsert(
+          const { error } = await supabase.from("availability").upsert(
             {
               player_id: player.id,
               match_date: date,
@@ -63,8 +95,20 @@ export default function PlayerView({ player, matches, initialAvailability, selec
               note: nextNote || null,
               updated_at: new Date().toISOString(),
             },
-            { onConflict: "player_id,match_date" }
+            { onConflict: "player_id,match_date" },
           );
+          if (error) {
+            setSaveStates((prev) => ({ ...prev, [date]: "error" }));
+          } else {
+            setSaveStates((prev) => ({ ...prev, [date]: "saved" }));
+            setTimeout(() => {
+              setSaveStates((prev) => {
+                const copy = { ...prev };
+                delete copy[date];
+                return copy;
+              });
+            }, 2000);
+          }
         });
       }, 300);
     }
@@ -88,17 +132,27 @@ export default function PlayerView({ player, matches, initialAvailability, selec
                 Kampong Cricket Club • {player.full_name}
               </p>
             </div>
-            
+
             <div className="flex bg-surface p-1 rounded-xl border border-border">
-              <button 
+              <button
                 onClick={() => setActiveTab("planner")}
-                className={cn("px-4 py-2 text-xs font-bold uppercase tracking-wider rounded-lg transition-all", activeTab === "planner" ? "bg-crimson text-white shadow-lg" : "text-foreground-muted hover:text-foreground")}
+                className={cn(
+                  "px-4 py-2 text-xs font-bold uppercase tracking-wider rounded-lg transition-all",
+                  activeTab === "planner"
+                    ? "bg-crimson text-white shadow-lg"
+                    : "text-foreground-muted hover:text-foreground",
+                )}
               >
                 Availability
               </button>
-              <button 
+              <button
                 onClick={() => setActiveTab("fixtures")}
-                className={cn("px-4 py-2 text-xs font-bold uppercase tracking-wider rounded-lg transition-all", activeTab === "fixtures" ? "bg-crimson text-white shadow-lg" : "text-foreground-muted hover:text-foreground")}
+                className={cn(
+                  "px-4 py-2 text-xs font-bold uppercase tracking-wider rounded-lg transition-all",
+                  activeTab === "fixtures"
+                    ? "bg-crimson text-white shadow-lg"
+                    : "text-foreground-muted hover:text-foreground",
+                )}
               >
                 Full Schedule
               </button>
@@ -108,10 +162,10 @@ export default function PlayerView({ player, matches, initialAvailability, selec
 
         <AnimatePresence mode="wait">
           {activeTab === "planner" ? (
-            <motion.div 
-              key="planner" 
-              initial={{ opacity: 0, y: 10 }} 
-              animate={{ opacity: 1, y: 0 }} 
+            <motion.div
+              key="planner"
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: -10 }}
               className="space-y-12 mt-8"
             >
@@ -124,34 +178,87 @@ export default function PlayerView({ player, matches, initialAvailability, selec
                   </h2>
                   <div className="grid md:grid-cols-2 gap-4">
                     {selectedMatches.map((m) => {
-                      const status = matchStatus.find((s) => s.match_id === m.id)?.state ?? "open";
+                      const status =
+                        matchStatus.find((s) => s.match_id === m.id)?.state ??
+                        "open";
                       return (
-                        <div key={m.id} className="relative p-6 rounded-3xl border border-success/30 bg-success/5 overflow-hidden group">
+                        <div
+                          key={m.id}
+                          className="relative p-6 rounded-3xl border border-success/30 bg-success/5 overflow-hidden group"
+                        >
                           <CricketBall className="absolute -right-12 -bottom-12 size-48 opacity-[0.03] grayscale transition-transform group-hover:scale-110 duration-1000" />
                           <div className="relative z-10">
                             <div className="flex justify-between items-start">
                               <div>
                                 <span className="text-[10px] font-mono font-bold text-success uppercase tracking-widest bg-success/10 px-2 py-0.5 rounded">
-                                  {status === "confirmed" ? "Final XI" : "Provisional"}
+                                  {status === "confirmed"
+                                    ? "Final XI"
+                                    : "Provisional"}
                                 </span>
-                                <h3 className="font-display text-3xl font-semibold mt-2 text-white">{m.team_code}</h3>
-                                <p className="text-foreground-muted text-sm">vs {m.opposition}</p>
+                                <h3 className="font-display text-3xl font-semibold mt-2 text-white">
+                                  {m.team_code}
+                                </h3>
+                                <p className="text-foreground-muted text-sm">
+                                  vs {m.opposition}
+                                </p>
                               </div>
                             </div>
                             <div className="grid grid-cols-2 gap-6 mt-8">
                               <div className="space-y-1">
-                                <p className="text-[9px] font-mono text-foreground-muted uppercase tracking-widest">When</p>
-                                <p className="font-display text-lg">{mounted ? new Date(m.match_date).toLocaleDateString("en-GB", { weekday: 'short', day: 'numeric', month: 'short' }) : "..."}</p>
-                                <p className="font-mono text-xs text-foreground-muted">{m.start_time?.slice(0, 5) ?? "TBC"}</p>
+                                <p className="text-[9px] font-mono text-foreground-muted uppercase tracking-widest">
+                                  When
+                                </p>
+                                <p className="font-display text-lg">
+                                  {mounted
+                                    ? new Date(m.match_date).toLocaleDateString(
+                                        "en-GB",
+                                        {
+                                          weekday: "short",
+                                          day: "numeric",
+                                          month: "short",
+                                        },
+                                      )
+                                    : "..."}
+                                </p>
+                                <p className="font-mono text-xs text-foreground-muted">
+                                  {m.start_time?.slice(0, 5) ?? "TBC"}
+                                </p>
                               </div>
                               <div className="space-y-1">
-                                <p className="text-[9px] font-mono text-foreground-muted uppercase tracking-widest">Where</p>
-                                <p className="font-display text-lg truncate" title={m.venue ?? "TBC"}>{m.venue ?? "TBC"}</p>
-                                {m.venue && (
-                                  <a href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(m.venue)}`} target="_blank" rel="noreferrer" className="text-success text-[10px] uppercase font-bold hover:underline">
-                                    Google Maps ↗
-                                  </a>
-                                )}
+                                <p className="text-[9px] font-mono text-foreground-muted uppercase tracking-widest">
+                                  Where
+                                </p>
+                                <p
+                                  className="font-display text-lg truncate"
+                                  title={m.venue ?? "TBC"}
+                                >
+                                  {m.venue ?? "TBC"}
+                                </p>
+                                <div className="flex items-center gap-4">
+                                  {m.venue && (
+                                    <a
+                                      href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(m.venue)}`}
+                                      target="_blank"
+                                      rel="noreferrer"
+                                      className="text-success text-[10px] uppercase font-bold hover:underline"
+                                    >
+                                      Google Maps ↗
+                                    </a>
+                                  )}
+                                  <button
+                                    onClick={() => {
+                                      navigator.clipboard.writeText(
+                                        `Selected for ${m.team_code} vs ${m.opposition}\n` +
+                                          `${new Date(m.match_date).toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short" })} at ${m.start_time?.slice(0, 5) ?? "TBC"}\n` +
+                                          `Venue: ${m.venue ?? "TBC"}`,
+                                      );
+                                      alert("Match details copied!");
+                                    }}
+                                    className="text-success text-[10px] uppercase font-bold hover:underline"
+                                  >
+                                    Copy Details ⎘
+                                  </button>
+                                </div>
                               </div>
                             </div>
                           </div>
@@ -166,16 +273,24 @@ export default function PlayerView({ player, matches, initialAvailability, selec
               <section>
                 <div className="flex items-center justify-between mb-6">
                   <h2 className="font-display text-2xl">Season Planner</h2>
-                  <p className="text-[10px] font-mono text-foreground-muted uppercase tracking-widest">Plan your availability</p>
+                  <p className="text-[10px] font-mono text-foreground-muted uppercase tracking-widest">
+                    Plan your availability
+                  </p>
                 </div>
 
                 <div className="space-y-8">
                   {weekends.slice(0, 8).map((w) => (
-                    <div key={w.id} className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                      {w.dates.map(date => {
+                    <div
+                      key={w.id}
+                      className="grid grid-cols-1 md:grid-cols-2 gap-4"
+                    >
+                      {w.dates.map((date) => {
                         const dayStatus = avail[date]?.status || null;
                         const dayNote = avail[date]?.note || "";
-                        const dayMatches = matches.filter(m => m.match_date === date);
+                        const dayMatches = matches.filter(
+                          (m) => m.match_date === date,
+                        );
+                        const saveState = saveStates[date];
                         const isSaturday = new Date(date).getDay() === 6;
 
                         return (
@@ -183,41 +298,85 @@ export default function PlayerView({ player, matches, initialAvailability, selec
                             key={date}
                             className={cn(
                               "rounded-3xl p-6 border transition-all duration-500 relative overflow-hidden",
-                              dayStatus === "no" ? "bg-surface/30 border-border opacity-50 grayscale" : "bg-surface border-border shadow-xl hover:border-border/50"
+                              dayStatus === "no"
+                                ? "bg-surface/30 border-border opacity-50 grayscale"
+                                : "bg-surface border-border shadow-xl hover:border-border/50",
                             )}
                           >
                             <div className="flex justify-between items-baseline mb-6">
                               <div>
-                                <h3 className="font-display text-2xl">{isSaturday ? "Saturday" : "Sunday"}</h3>
+                                <h3 className="font-display text-2xl">
+                                  {isSaturday ? "Saturday" : "Sunday"}
+                                </h3>
                                 <p className="font-mono text-[10px] text-foreground-muted uppercase tracking-widest">
-                                  {mounted ? new Date(date).toLocaleDateString("en-GB", { day: "numeric", month: "long" }) : "..."}
+                                  {mounted
+                                    ? new Date(date).toLocaleDateString(
+                                        "en-GB",
+                                        { day: "numeric", month: "long" },
+                                      )
+                                    : "..."}
                                 </p>
                               </div>
-                              <div className="flex gap-2">
-                                {dayMatches.map(m => (
-                                  <span key={m.id} className="size-5 rounded bg-white/5 border border-border flex items-center justify-center text-[8px] font-bold uppercase text-foreground-muted">
-                                    {m.team_code === "Zami 1" ? "Z1" : m.team_code === "Zami 2" ? "Z2" : m.team_code}
+                              <div className="flex flex-col items-end gap-2">
+                                <div className="flex gap-2">
+                                  {dayMatches.map((m) => (
+                                    <span
+                                      key={m.id}
+                                      className="size-5 rounded bg-white/5 border border-border flex items-center justify-center text-[8px] font-bold uppercase text-foreground-muted"
+                                    >
+                                      {m.team_code === "Zami 1"
+                                        ? "Z1"
+                                        : m.team_code === "Zami 2"
+                                          ? "Z2"
+                                          : m.team_code}
+                                    </span>
+                                  ))}
+                                </div>
+                                {saveState && (
+                                  <span
+                                    className={cn(
+                                      "text-[10px] font-bold uppercase",
+                                      saveState === "saving"
+                                        ? "text-warning animate-pulse"
+                                        : saveState === "saved"
+                                          ? "text-success"
+                                          : "text-danger",
+                                    )}
+                                  >
+                                    {saveState}
                                   </span>
-                                ))}
+                                )}
                               </div>
                             </div>
 
                             <div className="flex gap-3 mb-6">
                               <button
-                                onClick={() => updateAvailability(date, { status: "yes" })}
+                                aria-label={`Mark available for ${isSaturday ? "Saturday" : "Sunday"}, ${new Date(date).toLocaleDateString()}`}
+                                onClick={() =>
+                                  updateAvailability(date, { status: "yes" })
+                                }
                                 className={cn(
-                                  "flex-1 h-12 rounded-xl font-bold text-sm transition-all flex items-center justify-center gap-2",
-                                  dayStatus === "yes" ? "bg-success text-background" : "bg-background border border-border text-foreground hover:bg-white/5"
+                                  "flex-1 h-12 rounded-xl font-bold text-sm transition-all flex items-center justify-center gap-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-success",
+                                  dayStatus === "yes"
+                                    ? "bg-success text-background"
+                                    : "bg-background border border-border text-foreground hover:bg-white/5",
                                 )}
                               >
-                                {dayStatus === "yes" && <CricketBall className="size-4 text-background" />}
+                                {dayStatus === "yes" && (
+                                  <CricketBall className="size-4 text-background" />
+                                )}
                                 YES
                               </button>
                               <button
-                                onClick={() => updateAvailability(date, { status: "no" })}
+                                aria-label={`Mark unavailable for ${isSaturday ? "Saturday" : "Sunday"}, ${new Date(date).toLocaleDateString()}`}
+                                onClick={() =>
+                                  updateAvailability(date, { status: "no" })
+                                }
                                 className={cn(
-                                  "flex-1 h-12 rounded-xl font-bold text-sm transition-all",
-                                  dayStatus === "no" ? "bg-danger text-white" : "bg-background border border-border text-foreground hover:bg-white/5"
+                                  "flex-1 h-12 rounded-xl font-bold text-sm transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-danger",
+                                  dayStatus === "no"
+                                    ? "bg-danger text-white"
+                                    : "bg-background border border-border text-foreground hover:bg-white/5",
                                 )}
                               >
                                 NO
@@ -227,7 +386,11 @@ export default function PlayerView({ player, matches, initialAvailability, selec
                             <textarea
                               placeholder="Add a note..."
                               value={dayNote}
-                              onChange={(e) => updateAvailability(date, { note: e.target.value })}
+                              onChange={(e) =>
+                                updateAvailability(date, {
+                                  note: e.target.value,
+                                })
+                              }
                               className="w-full h-10 bg-background/50 border border-border rounded-xl px-4 py-2 text-xs text-foreground focus:outline-none focus:border-crimson resize-none"
                             />
                           </div>
@@ -239,10 +402,10 @@ export default function PlayerView({ player, matches, initialAvailability, selec
               </section>
             </motion.div>
           ) : (
-            <motion.div 
-              key="fixtures" 
-              initial={{ opacity: 0, x: 20 }} 
-              animate={{ opacity: 1, x: 0 }} 
+            <motion.div
+              key="fixtures"
+              initial={{ opacity: 0, x: 20 }}
+              animate={{ opacity: 1, x: 0 }}
               exit={{ opacity: 0, x: -20 }}
               className="mt-8 space-y-4"
             >
@@ -256,12 +419,27 @@ export default function PlayerView({ player, matches, initialAvailability, selec
                 </div>
                 <div className="divide-y divide-border/30 max-h-[70vh] overflow-y-auto custom-scrollbar">
                   {matches.map((m) => (
-                    <div key={m.id} className="grid grid-cols-12 gap-4 px-6 py-4 items-center hover:bg-white/[0.02] transition-colors">
+                    <div
+                      key={m.id}
+                      className="grid grid-cols-12 gap-4 px-6 py-4 items-center hover:bg-white/[0.02] transition-colors"
+                    >
                       <div className="col-span-2 font-mono text-xs">
-                        {mounted ? new Date(m.match_date).toLocaleDateString("en-GB", { day: '2-digit', month: 'short' }) : "..."}
+                        {mounted
+                          ? new Date(m.match_date).toLocaleDateString("en-GB", {
+                              day: "2-digit",
+                              month: "short",
+                            })
+                          : "..."}
                       </div>
                       <div className="col-span-2 text-center">
-                        <span className={cn("px-2 py-0.5 rounded text-[10px] font-bold", m.team_code.startsWith("H") ? "bg-crimson/20 text-crimson" : "bg-white/10 text-white")}>
+                        <span
+                          className={cn(
+                            "px-2 py-0.5 rounded text-[10px] font-bold",
+                            m.team_code.startsWith("H")
+                              ? "bg-crimson/20 text-crimson"
+                              : "bg-white/10 text-white",
+                          )}
+                        >
                           {m.team_code}
                         </span>
                       </div>
@@ -301,7 +479,7 @@ function groupByWeekend(matches: Match[]): WeekendBucket[] {
     const sat = new Date(d);
     if (day === 0) sat.setDate(d.getDate() - 1);
     if (day === 6) sat.setDate(d.getDate());
-    
+
     const id = sat.toISOString().slice(0, 10);
     if (!buckets.has(id)) {
       const sun = new Date(sat);
@@ -309,7 +487,7 @@ function groupByWeekend(matches: Match[]): WeekendBucket[] {
       buckets.set(id, {
         id,
         label: `${sat.toLocaleDateString("en-GB", { day: "numeric", month: "short" })} – ${sun.toLocaleDateString("en-GB", { day: "numeric", month: "short" })}`,
-        dates: [id, sun.toISOString().slice(0, 10)]
+        dates: [id, sun.toISOString().slice(0, 10)],
       });
     }
   }

@@ -6,7 +6,7 @@ const config: Config = {
     extend: {
       colors: {
         background: "#0a1929", // Deep navy
-        surface: "#0f1f30",    // Premium dark leather/willow feel
+        surface: "#0f1f30", // Premium dark leather/willow feel
         border: {
           DEFAULT: "rgba(245, 240, 232, 0.08)",
           hover: "rgba(245, 240, 232, 0.16)",
@@ -49,7 +49,7 @@ const config: Config = {
       },
       animation: {
         "spin-seam": "spin-seam 1.2s linear infinite",
-        "shimmer": "shimmer 2s linear infinite",
+        shimmer: "shimmer 2s linear infinite",
         "pulse-slow": "pulse 3s cubic-bezier(0.4, 0, 0.6, 1) infinite",
       },
       keyframes: {
@@ -57,9 +57,9 @@ const config: Config = {
           "0%": { transform: "rotate(0deg)" },
           "100%": { transform: "rotate(360deg)" },
         },
-        "shimmer": {
-          "from": { backgroundPosition: "200% 0" },
-          "to": { backgroundPosition: "-200% 0" },
+        shimmer: {
+          from: { backgroundPosition: "200% 0" },
+          to: { backgroundPosition: "-200% 0" },
         },
       },
     },

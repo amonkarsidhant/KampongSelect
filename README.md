@@ -1,126 +1,56 @@
-# KampongSelect
+# KampongSelect v1.0.0
 
-Weekend availability + tiered XI selection for Kampong Cricket Club.
-Built on a fully free stack — €0/month for a club of ~100 players.
+KampongSelect is a premium Club OS built for Kampong Cricket Club. It handles weekend availability collection, tiered cascade XI selection, squad reliability tracking, and real-time WhatsApp briefings.
 
-## What it does
+## Roles
+- **Players:** Set Saturday/Sunday availability via a fast mobile-friendly Season Planner.
+- **Captains:** Pick their XI from the live pool using a scorecard-style interface with real-time balance metrics. H1 picks first; taken players are marked for H2, etc. (The Cascade Engine).
+- **Admin (Fixture Secretary):** Command Centre with War Room timeline to monitor cascade progress, manually override availability, resolve double-bookings, and nudge non-responders via automated emails.
 
-- **Players** set Yes/No for Saturday and Sunday each week (15-second job on a phone).
-- **Captains** pick their XI from the available pool. H1 picks first, then H2, H3, H4, H5 — the cascade automatically removes already-picked players from lower-tier pools.
-- **Fixture Secretary (admin)** sees the whole weekend at a glance, sends reminders, exports team sheets, manages fixtures and players.
+## Technical Foundation
+Built on a high-performance stack:
+- **Frontend:** Next.js 14 (App Router), Tailwind CSS, Framer Motion
+- **Backend:** Supabase (PostgreSQL, Auth, Realtime subscriptions)
+- **Email:** Resend
+- **Hosting:** Vercel
 
-Three teams structures are supported:
-- **H1–H5** — competitive teams with tiered cascade selection
-- **Zami 1, Zami 2** — Saturday recreational (independent pool, no cascade)
-- **Zomi** — Sunday recreational (independent pool, no cascade)
+## Setup Instructions
 
-H-team match days vary week-to-week (Sat or Sun) — the `matches.match_date` controls which weekend day each fixture lands on.
+### 1. Database Setup
+1. Create a [Supabase](https://supabase.com) project.
+2. Run `supabase/schema.sql` in the Supabase SQL Editor.
+3. Run migrations in `supabase/migrations/` sequentially.
+4. Run `supabase/seed.sql` to populate initial teams.
 
-## Tech stack
-
-| Layer        | Tool                | Free tier                                       |
-| ------------ | ------------------- | ----------------------------------------------- |
-| Frontend     | Next.js 14 (App Router) | unlimited                                   |
-| Hosting      | Vercel              | 100 GB bandwidth/mo, custom domain              |
-| Database     | Supabase Postgres   | 500 MB, 2 GB egress/mo                          |
-| Auth         | Supabase Auth       | Magic-link email, 50k MAUs                      |
-| Realtime     | Supabase Realtime   | 200 concurrent connections                      |
-| Email (opt.) | Resend              | 3000 emails/mo, 100/day                         |
-| Sheet sync   | GitHub Actions      | 2000 min/mo                                     |
-
-For a club this size you will use < 1% of any of these limits.
-
-## Folder layout
-
+### 2. Environment Variables
+Copy `.env.local.example` to `.env.local` and add:
 ```
-kampong/
-  app/                     # Next.js App Router pages
-    layout.tsx             # Root layout, role switcher
-    page.tsx               # Landing → redirect by role
-    login/page.tsx         # Magic-link sign-in
-    player/page.tsx        # Set my weekend availability
-    captain/page.tsx       # Pick my XI from the pool
-    admin/page.tsx         # Fixture Secretary dashboard
-  components/
-    AvailabilityToggle.tsx
-    PlayerCard.tsx
-    CascadeStatus.tsx
-    RoleSwitcher.tsx
-  lib/
-    supabase.ts            # Browser client
-    supabase-server.ts     # Server client (cookies)
-    cascade.ts             # Tiered selection logic
-    types.ts               # TypeScript types from DB schema
-  supabase/
-    schema.sql             # Tables, indexes, RLS policies
-    seed.sql               # Initial squad + fixtures
-  package.json
-  next.config.js
-  tailwind.config.ts
-  tsconfig.json
-  .env.local.example
+NEXT_PUBLIC_SUPABASE_URL=your-project-url
+NEXT_PUBLIC_SUPABASE_ANON_KEY=your-anon-key
+SUPABASE_SERVICE_ROLE_KEY=your-service-role-key
+
+# Notifications (Optional)
+RESEND_API_KEY=your-resend-key
+RESEND_FROM_EMAIL=KampongSelect <onboarding@resend.dev>
+NEXT_PUBLIC_APP_URL=http://localhost:3000
+
+# Social Login (Optional)
+NEXT_PUBLIC_ENABLE_GITHUB_LOGIN=true
 ```
 
-## Local setup (10 minutes)
-
+### 3. Admin Bootstrap
+To grant the Fixture Secretary access:
 ```bash
-# 1. Clone and install
-git clone https://github.com/<you>/kampong-select.git
-cd kampong-select
+npx tsx scripts/bootstrap-admin.ts <admin-email>
+```
+
+### 4. Run Locally
+```bash
 npm install
-
-# 2. Create a free Supabase project at https://supabase.com
-#    Project name: kampong-select
-#    Region: West EU (Amsterdam) — closest to NL
-
-# 3. Run the schema in Supabase SQL editor
-#    Copy contents of supabase/schema.sql, paste, run.
-#    Then copy supabase/seed.sql and run that too.
-
-# 4. Copy .env.local.example to .env.local and fill in:
-#    - NEXT_PUBLIC_SUPABASE_URL    (from Supabase project settings)
-#    - NEXT_PUBLIC_SUPABASE_ANON_KEY  (same place)
-
-# 5. Start dev server
 npm run dev
-# → http://localhost:3000
 ```
 
-## Deploy to Vercel (5 minutes)
-
-```bash
-# 1. Push to GitHub
-git push origin main
-
-# 2. Go to https://vercel.com/new → Import your repo
-# 3. Add the same env vars from .env.local
-# 4. Deploy → live at https://kampong-select.vercel.app
-```
-
-Optionally point a custom domain (e.g. `select.kampongcricket.nl`) at it — Vercel handles HTTPS for free.
-
-## Roles + first login
-
-There is no signup form. The Fixture Secretary creates player rows with their email
-addresses (paste from the existing Google Sheet). Players sign in via magic link —
-they enter their email, receive a one-tap link, and they're in. Their role
-(player/captain/admin) is set on their `players` row.
-
-To bootstrap the first admin: insert a row directly in Supabase with `role='admin'`,
-then sign in with that email.
-
-## Importing the existing sheet
-
-Run once after setup:
-
-```bash
-npm run import-sheet -- --url "https://docs.google.com/..."
-```
-
-This script (in `scripts/import-sheet.ts`) reads the public sheet, maps KNCB IDs,
-and inserts/updates the `players` table. Captains and tier assignments need to be
-set manually after import (one-time job in admin view).
-
-## License
-
-MIT — fork it, run it, modify it for your own club.
+## Documentation
+- `OPERATIONS.md`: Weekly flow and admin guide.
+- `DEPLOY.md`: Production deployment checklist.
+- `RELEASE_NOTES.md`: v1.0.0 features and backlog.

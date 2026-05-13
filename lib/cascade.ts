@@ -16,7 +16,15 @@
 //      it in the dashboard and resolves manually.
 // ============================================================================
 
-import type { Match, Player, Selection, Team, AvailStatus, Availability, MatchStatus } from "./types";
+import type {
+  Match,
+  Player,
+  Selection,
+  Team,
+  AvailStatus,
+  Availability,
+  MatchStatus,
+} from "./types";
 
 export interface CaptainPoolInput {
   /** The match the captain is selecting for. */
@@ -48,11 +56,20 @@ export interface PoolPlayer {
 
 /**
  * Computes the available pool for a captain selecting for `match`.
- * Marks each as available, already taken by a higher tier (confirmed or provisional), 
+ * Marks each as available, already taken by a higher tier (confirmed or provisional),
  * or already picked for this same match.
  */
 export function poolForMatch(input: CaptainPoolInput): PoolPlayer[] {
-  const { match, teams, allMatches, playersById, availability, availabilityDetails, selections, matchStatus } = input;
+  const {
+    match,
+    teams,
+    allMatches,
+    playersById,
+    availability,
+    availabilityDetails,
+    selections,
+    matchStatus,
+  } = input;
   const myTeam = teams.find((t) => t.code === match.team_code);
   if (!myTeam) return [];
 
@@ -61,7 +78,12 @@ export function poolForMatch(input: CaptainPoolInput): PoolPlayer[] {
   for (const m of allMatches) {
     if (m.match_date === match.match_date && m.id !== match.id) {
       const t = teams.find((x) => x.code === m.team_code);
-      if (t && t.tier_order != null && myTeam.tier_order != null && t.tier_order < myTeam.tier_order) {
+      if (
+        t &&
+        t.tier_order != null &&
+        myTeam.tier_order != null &&
+        t.tier_order < myTeam.tier_order
+      ) {
         higherTierMatches.set(m.id, t.code);
       }
     }
@@ -73,9 +95,12 @@ export function poolForMatch(input: CaptainPoolInput): PoolPlayer[] {
     for (const sel of selections) {
       const teamCode = higherTierMatches.get(sel.match_id);
       if (teamCode) {
-        const status = matchStatus.find(ms => ms.match_id === sel.match_id);
+        const status = matchStatus.find((ms) => ms.match_id === sel.match_id);
         const isConfirmed = status?.state === "confirmed";
-        takenByHigher.set(sel.player_id, { team: teamCode, confirmed: isConfirmed });
+        takenByHigher.set(sel.player_id, {
+          team: teamCode,
+          confirmed: isConfirmed,
+        });
       }
     }
   }
@@ -89,36 +114,49 @@ export function poolForMatch(input: CaptainPoolInput): PoolPlayer[] {
   }
 
   const result: PoolPlayer[] = [];
-  const excusedSet = new Set(availabilityDetails.filter(ad => ad.is_excused).map(ad => ad.player_id));
+  const excusedSet = new Set(
+    availabilityDetails.filter((ad) => ad.is_excused).map((ad) => ad.player_id),
+  );
 
   for (const player of Array.from(playersById.values())) {
     if (!player.active) continue;
-    
+
     const playerId = player.id;
     const response = availability.get(playerId) || null;
 
     if (pickedHere.has(playerId)) {
-      result.push({ player, status: "already_picked", response, is_excused: excusedSet.has(playerId) });
+      result.push({
+        player,
+        status: "already_picked",
+        response,
+        is_excused: excusedSet.has(playerId),
+      });
     } else if (takenByHigher.has(playerId)) {
       const info = takenByHigher.get(playerId)!;
-      result.push({ 
-        player, 
-        status: "taken_by_higher", 
-        response, 
-        takenBy: info.team, 
+      result.push({
+        player,
+        status: "taken_by_higher",
+        response,
+        takenBy: info.team,
         is_provisional: !info.confirmed,
-        is_excused: excusedSet.has(playerId)
+        is_excused: excusedSet.has(playerId),
       });
     } else {
-      result.push({ player, status: "available", response, is_excused: excusedSet.has(playerId) });
+      result.push({
+        player,
+        status: "available",
+        response,
+        is_excused: excusedSet.has(playerId),
+      });
     }
   }
 
   // Sort: available first, then by tier (lower = higher skill), then by name
   return result.sort((a, b) => {
     const order = { available: 0, already_picked: 1, taken_by_higher: 2 };
-    if (order[a.status] !== order[b.status]) return order[a.status] - order[b.status];
-    
+    if (order[a.status] !== order[b.status])
+      return order[a.status] - order[b.status];
+
     // Within groups, prioritize those who actually said YES
     if (a.response === "yes" && b.response !== "yes") return -1;
     if (b.response === "yes" && a.response !== "yes") return 1;
@@ -136,7 +174,7 @@ export function poolForMatch(input: CaptainPoolInput): PoolPlayer[] {
  */
 export function findConflicts(
   selections: Selection[],
-  matches: Match[]
+  matches: Match[],
 ): { playerId: string; date: string; teams: string[] }[] {
   const byPlayerDate = new Map<string, string[]>(); // "playerId|date" -> [teamCode]
   for (const sel of selections) {

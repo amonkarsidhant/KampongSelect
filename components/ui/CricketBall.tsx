@@ -1,7 +1,13 @@
 import { cn } from "@/lib/utils";
 
 /** A premium SVG cricket ball icon with radial gradient shading and stitched seams. */
-export function CricketBall({ className, spinning = false }: { className?: string; spinning?: boolean }) {
+export function CricketBall({
+  className,
+  spinning = false,
+}: {
+  className?: string;
+  spinning?: boolean;
+}) {
   return (
     <svg
       viewBox="0 0 100 100"

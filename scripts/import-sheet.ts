@@ -11,7 +11,8 @@
 
 import { createClient } from "@supabase/supabase-js";
 
-const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL ?? process.env.SUPABASE_URL;
+const SUPABASE_URL =
+  process.env.NEXT_PUBLIC_SUPABASE_URL ?? process.env.SUPABASE_URL;
 const SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY; // service role bypasses RLS
 
 if (!SUPABASE_URL || !SERVICE_KEY) {
@@ -55,13 +56,23 @@ function parseCsv(text: string): string[][] {
       }
     } else {
       if (ch === '"') inQuotes = true;
-      else if (ch === ",") { row.push(field); field = ""; }
-      else if (ch === "\n") { row.push(field); rows.push(row); row = []; field = ""; }
-      else if (ch === "\r") { /* ignore */ }
-      else field += ch;
+      else if (ch === ",") {
+        row.push(field);
+        field = "";
+      } else if (ch === "\n") {
+        row.push(field);
+        rows.push(row);
+        row = [];
+        field = "";
+      } else if (ch === "\r") {
+        /* ignore */
+      } else field += ch;
     }
   }
-  if (field || row.length) { row.push(field); rows.push(row); }
+  if (field || row.length) {
+    row.push(field);
+    rows.push(row);
+  }
   return rows;
 }
 
@@ -79,7 +90,10 @@ async function main() {
   let headerIndex = -1;
   for (let i = 0; i < Math.min(rows.length, 10); i++) {
     const lower = rows[i].map((c) => c.toLowerCase());
-    if (lower.some((c) => c.includes("kncb")) && lower.some((c) => c.includes("name"))) {
+    if (
+      lower.some((c) => c.includes("kncb")) &&
+      lower.some((c) => c.includes("name"))
+    ) {
       headerIndex = i;
       break;
     }
@@ -91,7 +105,9 @@ async function main() {
   const header = rows[headerIndex].map((c) => c.toLowerCase());
   const idCol = header.findIndex((c) => c.includes("kncb"));
   const nameCol = header.findIndex((c) => c.includes("name"));
-  const emailCol = header.findIndex((c) => c.includes("email") || c.includes("e-mail"));
+  const emailCol = header.findIndex(
+    (c) => c.includes("email") || c.includes("e-mail"),
+  );
 
   const players: ImportRow[] = [];
   for (let i = headerIndex + 1; i < rows.length; i++) {
@@ -101,7 +117,9 @@ async function main() {
     const email = (emailCol >= 0 ? r[emailCol] : "").trim();
     if (!name) continue;
     const kncb_id = /^\d+$/.test(idText) ? Number(idText) : null;
-    const fallbackEmail = email || `${name.toLowerCase().replace(/[^a-z0-9]+/g, ".")}@kampongcricket.nl`;
+    const fallbackEmail =
+      email ||
+      `${name.toLowerCase().replace(/[^a-z0-9]+/g, ".")}@kampongcricket.nl`;
     players.push({ full_name: name, kncb_id, email: fallbackEmail });
   }
 
@@ -109,19 +127,32 @@ async function main() {
 
   const supabase = createClient(SUPABASE_URL!, SERVICE_KEY!);
 
-  let inserted = 0, updated = 0;
+  let inserted = 0,
+    updated = 0;
   for (const p of players) {
     // Try match by kncb_id, then email
     const { data: existing } = p.kncb_id
-      ? await supabase.from("players").select("id").eq("kncb_id", p.kncb_id).maybeSingle()
-      : await supabase.from("players").select("id").eq("email", p.email).maybeSingle();
+      ? await supabase
+          .from("players")
+          .select("id")
+          .eq("kncb_id", p.kncb_id)
+          .maybeSingle()
+      : await supabase
+          .from("players")
+          .select("id")
+          .eq("email", p.email)
+          .maybeSingle();
 
     if (existing) {
-      await supabase.from("players").update({ full_name: p.full_name }).eq("id", existing.id);
+      await supabase
+        .from("players")
+        .update({ full_name: p.full_name })
+        .eq("id", existing.id);
       updated++;
     } else {
       const { error } = await supabase.from("players").insert(p);
-      if (error) console.warn(`Insert failed for ${p.full_name}:`, error.message);
+      if (error)
+        console.warn(`Insert failed for ${p.full_name}:`, error.message);
       else inserted++;
     }
   }

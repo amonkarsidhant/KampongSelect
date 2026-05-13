@@ -1,11 +1,20 @@
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase-server";
 import AdminView from "./AdminView";
-import type { Match, Player, Team, Availability, Selection, MatchStatus } from "@/lib/types";
+import type {
+  Match,
+  Player,
+  Team,
+  Availability,
+  Selection,
+  MatchStatus,
+} from "@/lib/types";
 
 export default async function AdminPage() {
   const supabase = createClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
   if (!user) redirect("/login");
 
   const { data: me } = await supabase
@@ -29,9 +38,18 @@ export default async function AdminPage() {
     { data: matchStatus },
   ] = await Promise.all([
     supabase.from("teams").select("*"),
-    supabase.from("matches").select("*").gte("match_date", today).lte("match_date", horizon).order("match_date"),
+    supabase
+      .from("matches")
+      .select("*")
+      .gte("match_date", today)
+      .lte("match_date", horizon)
+      .order("match_date"),
     supabase.from("players").select("*").eq("active", true),
-    supabase.from("availability").select("*").gte("match_date", today).lte("match_date", horizon),
+    supabase
+      .from("availability")
+      .select("*")
+      .gte("match_date", today)
+      .lte("match_date", horizon),
     supabase.from("selections").select("*"),
     supabase.from("match_status").select("*"),
   ]);

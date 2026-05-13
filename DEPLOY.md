@@ -1,101 +1,46 @@
-# Deployment guide — KampongSelect
+# Deployment Guide
 
-A 30-minute checklist to get a working demo in front of the club chairman, all
-on free tiers.
+This checklist ensures KampongSelect is ready for production use by the club.
 
-## What you need
+## Production Checklist
 
-- A laptop with Node.js 20+ installed (`brew install node` or [nodejs.org](https://nodejs.org))
-- A GitHub account (free)
-- A Vercel account (free — sign up with GitHub)
-- A Supabase account (free — sign up with GitHub)
+### 1. Supabase Preparation
+- Run `supabase/schema.sql`.
+- Apply any migrations in `supabase/migrations/`.
+- Verify RLS policies are active and that no service role key is exposed in the browser.
 
-## Step 1 — Set up Supabase (10 min)
+### 2. Vercel Configuration
+Add the following Environment Variables in your Vercel Project Settings:
+- `NEXT_PUBLIC_SUPABASE_URL`
+- `NEXT_PUBLIC_SUPABASE_ANON_KEY`
+- `SUPABASE_SERVICE_ROLE_KEY` (Server-only for admin scripts and logging)
+- `RESEND_API_KEY` (Required for automated email nudges)
+- `RESEND_FROM_EMAIL` (E.g. "Kampong Cricket <no-reply@yourdomain.com>")
+- `NEXT_PUBLIC_APP_URL` (E.g. "https://select.kampongcricket.nl")
+- `NEXT_PUBLIC_ENABLE_GITHUB_LOGIN` (Set to `false` for production if you only want Magic Link)
 
-1. Go to <https://supabase.com> and click **New Project**.
-2. Project name: `kampong-select`. Region: **West EU (Amsterdam)** — it's the closest.
-3. Set a database password and save it. Wait ~2 min for provisioning.
-4. Open the **SQL Editor** (left sidebar) → **New query**.
-5. Copy the entire contents of `supabase/schema.sql` from this repo, paste into the editor, **Run**.
-6. New query → paste `supabase/seed.sql` → **Run**. You should now have 8 teams, 8 sample matches and ~22 players.
-7. Open **Project Settings → API**. Copy the **Project URL** and the **anon public key**. You'll need them in step 3.
+### 3. Supabase Auth URL Config
+1. Go to your Supabase Dashboard -> Authentication -> URL Configuration.
+2. Set the **Site URL** to your production Vercel domain.
+3. Add the exact callback URL `https://your-domain.vercel.app/auth/callback` to the **Redirect URLs**.
 
-### Configure email auth
-
-8. **Authentication → Providers → Email**. Make sure "Email" is enabled, "Confirm email" is **off** (we use magic links, no passwords).
-9. **Authentication → URL Configuration**. Set:
-   - Site URL: `http://localhost:3000` for now (we'll change this after deploying)
-   - Additional redirect URLs: leave default.
-
-### Bootstrap your admin user
-
-10. **Authentication → Users → Add user → Create new user**. Email: your own (the one you'll use for the demo). Tick "Auto-confirm".
-11. **Table editor → players**. Find the row with `email = secretaris@kampongcricket.nl` (or any admin row). Edit it: change `email` to your real email, save.
-12. The `auth_user_id` will get linked automatically the first time you sign in.
-
-## Step 2 — Run locally (5 min)
-
+### 4. Admin Bootstrap
+To set up the first Fixture Secretary account, run this locally using your production Supabase credentials:
 ```bash
-git clone <your-fork-url> kampong-select
-cd kampong-select
-cp .env.local.example .env.local
-# Edit .env.local — paste in the Project URL and anon key from step 1.7
-npm install
-npm run dev
+NEXT_PUBLIC_SUPABASE_URL="prod_url" SUPABASE_SERVICE_ROLE_KEY="prod_service_key" npx tsx scripts/bootstrap-admin.ts secretaris@kampongcricket.nl
 ```
 
-Open <http://localhost:3000>. Sign in with your email, click the magic link in your inbox (check spam folder — Supabase emails sometimes land there). You should land on the admin dashboard.
+### 5. Custom Domain (Optional)
+- Add your custom domain (e.g. `select.kampongcricket.nl`) in Vercel settings.
+- Vercel automatically manages the SSL certificate.
 
-## Step 3 — Deploy to Vercel (10 min)
+### 6. Backup & Export Plan
+- Supabase automatically performs daily backups on their Pro plan.
+- Admins can manually export CSV team sheets from the Command Centre each Thursday night as a fallback.
 
-1. Push your repo to GitHub (`git push origin main`).
-2. Go to <https://vercel.com/new>, import the repo, accept all defaults.
-3. **Environment Variables** section — add the same two vars from your `.env.local`:
-   - `NEXT_PUBLIC_SUPABASE_URL`
-   - `NEXT_PUBLIC_SUPABASE_ANON_KEY`
-4. Click **Deploy**. ~90 seconds later you'll have a URL like `https://kampong-select-xyz.vercel.app`.
-5. Go back to Supabase → **Authentication → URL Configuration** and update:
-   - Site URL: your Vercel URL
-   - Additional redirect URLs: add `https://kampong-select-xyz.vercel.app/auth/callback`
-
-That's it — the demo is live.
-
-## Step 4 — Demo script for the chairman
-
-Walk through these three flows in order. Total time: ~3 minutes.
-
-**Player view (30s)**
-- Sign in as a regular player.
-- "Players see only this. They tap Yes for Saturday or Sunday — that's their entire job, takes 5 seconds."
-- Tap Yes for both days.
-
-**Captain view (60s)**
-- Sign out, sign in as the H1 captain.
-- "Captains see only the players who said Yes. H1 picks first."
-- Tick 11 boxes. "Notice the running count and the 11-cap."
-- "Click confirm — now the H2 captain's pool drops by 11 automatically."
-
-**Admin view (90s)**
-- Sign in as the Fixture Secretary.
-- "This is your view. Every team's selection progress at a glance."
-- "Conflicts panel flags double-bookings — say someone got picked for Zami 1 on Saturday and H4 also plays Saturday."
-- "Nudge button reminds non-responders. Export gives you a printable team sheet."
-- "And it cost the club zero euros per month."
-
-## Step 5 — When you're ready for real use
-
-- **Custom domain**: in Vercel project settings → Domains, add `select.kampongcricket.nl` (or whatever the club has). Vercel issues an HTTPS cert automatically.
-- **Real player roster**: run `npm run import-sheet -- --sheet-id <ID> --gid <GID>` against the existing Google Sheet, or paste players into the `players` table directly.
-- **Email reminders**: sign up at <https://resend.com> (free 3000/mo), add the API key to Vercel env, wire up a server action that loops over non-responders. About 30 lines of code.
-- **WhatsApp share**: instead of email, the admin could share a `wa.me/?text=...` link to the club's WhatsApp group with the team sheet pre-filled.
-
-## What's free, forever
-
-| Service        | Free quota                       | What you'll actually use |
-| -------------- | -------------------------------- | ------------------------ |
-| Vercel         | 100 GB bandwidth / month         | < 1 GB                   |
-| Supabase       | 500 MB DB, 50k MAUs, 2 GB egress | < 5 MB                   |
-| Resend (opt.)  | 3000 emails / month              | ~400 (one weekly nudge × 100 players) |
-| GitHub Actions | 2000 min / month                 | ~2 (one sheet sync per week) |
-
-For a single club at this scale, you will not pay anything. Ever.
+### 7. Release Check
+Before any new deployment, run the CI command locally or in GitHub Actions:
+```bash
+npm run release:check
+```
+This ensures formatting, linting, typechecking, and Next.js builds all pass without errors.
