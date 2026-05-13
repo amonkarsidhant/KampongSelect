@@ -5,6 +5,7 @@ import { MapPin } from "lucide-react";
 import { createClient } from "@/lib/supabase";
 import RoleSwitcher from "@/components/RoleSwitcher";
 import { CricketBall } from "@/components/ui/CricketBall";
+import { TeamBadges } from "@/components/ui/TeamBadges";
 import { motion, AnimatePresence } from "framer-motion";
 import type {
   Match,
@@ -318,20 +319,9 @@ export default function PlayerView({
                                 </p>
                               </div>
                               <div className="flex flex-col items-end gap-2">
-                                <div className="flex gap-2">
-                                  {dayMatches.map((m) => (
-                                    <span
-                                      key={m.id}
-                                      className="size-5 rounded bg-white/5 border border-border flex items-center justify-center text-[8px] font-bold uppercase text-foreground-muted"
-                                    >
-                                      {m.team_code === "Zami 1"
-                                        ? "Z1"
-                                        : m.team_code === "Zami 2"
-                                          ? "Z2"
-                                          : m.team_code}
-                                    </span>
-                                  ))}
-                                </div>
+                                <TeamBadges
+                                  teamCodes={dayMatches.map((m) => m.team_code)}
+                                />
                                 {saveState && (
                                   <span
                                     className={cn(
